@@ -104,6 +104,11 @@ static uint32_t sdkver = 11 << 16;
 #endif
 static const char *syslibroot = ASCC_SYSROOT;
 static Vec libdirs;
+static Vec rpaths; /* -rpath: one LC_RPATH each */
+
+static uint32_t rpath_cmdsize(const char *p) {
+  return (uint32_t)((12 + strlen(p) + 1 + 7) & ~(size_t)7);
+}
 static int nodyld_info_debug;
 
 static void lerror(const char *fmt, ...) {
@@ -1424,6 +1429,9 @@ static int link_output(void) {
   {
     uint32_t sz = 72 + 72 + 80 * text_list.len + (data_list.len ? 72 + 80 * data_list.len : 0) +
                   72 + 48 + 24 + 80 + 32 + 24 + 24 + 24 + 56 + 16;
+    int r;
+    for (r = 0; r < rpaths.len; r++)
+      sz += rpath_cmdsize(rpaths.data[r]);
     addr = TEXT_BASE + 32 + sz;
   }
   for (i = 0; i < text_list.len; i++) {
@@ -1725,12 +1733,21 @@ static int link_output(void) {
     buf_u32(&cmds, 0x05470000u); /* current version */
     buf_u32(&cmds, 0x00010000u);
     buf_add(&cmds, "/usr/lib/libSystem.B.dylib\0\0\0\0\0", 32);
+    for (i = 0; i < rpaths.len; i++) {
+      const char *p = rpaths.data[i];
+      uint32_t cs = rpath_cmdsize(p);
+      buf_u32(&cmds, LC_RPATH);
+      buf_u32(&cmds, cs);
+      buf_u32(&cmds, 12);
+      buf_add(&cmds, p, strlen(p));
+      buf_zero(&cmds, cs - 12 - strlen(p));
+    }
     sig_cmd_off = (int)cmds.len;
     buf_u32(&cmds, LC_CODE_SIGNATURE);
     buf_u32(&cmds, 16);
     buf_u32(&cmds, (uint32_t)sigoff);
     buf_u32(&cmds, (uint32_t)siglen);
-    ncmds = data_list.len ? 13 : 12;
+    ncmds = (data_list.len ? 13 : 12) + (uint32_t)rpaths.len;
     (void)symtab_cmd_off; (void)dysym_cmd_off; (void)dyldinfo_off;
     (void)sig_cmd_off; (void)linkedit_cmd_off;
     if (TEXT_BASE + 32 + cmds.len > ((OutSect *)text_list.data[0])->addr) {
@@ -1821,6 +1838,8 @@ int ld_main(int argc, char **argv) {
       i += 3;
     } else if (starts_with(a, "-L") && a[2])
       vec_push(&libdirs, (void *)(a + 2));
+    else if (strcmp(a, "-rpath") == 0 && i + 1 < argc)
+      vec_push(&rpaths, argv[++i]);
     else if (strcmp(a, "-L") == 0 && i + 1 < argc)
       vec_push(&libdirs, argv[++i]);
     else if ((starts_with(a, "-weak-l") || starts_with(a, "-lazy-l")) && a[7])

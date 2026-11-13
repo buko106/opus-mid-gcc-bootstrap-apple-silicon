@@ -24,6 +24,7 @@
 #define LC_SYMTAB 0x2
 #define LC_DYSYMTAB 0xb
 #define LC_LOAD_DYLIB 0xc
+#define LC_RPATH 0x8000001c
 #define LC_ID_DYLIB 0xd
 #define LC_LOAD_DYLINKER 0xe
 #define LC_UUID 0x1b

@@ -175,6 +175,10 @@ st "run p2" 0 ./p2
 is "p2 output" 42
 st "ld -lazy-l" 0 "$LD" -o p3 main.o m1.o m2.o -lazy-lSystem
 st "run p3" 0 ./p3
+# -rpath (GCC 10 passes @loader_path and its own directory): one LC_RPATH each
+st "ld -rpath" 0 "$LD" -o prp main.o m1.o m2.o -lSystem -rpath @loader_path -rpath /a/longer/rpath/dir
+st "run prp" 0 ./prp
+is "prp output" 42
 st "ld -v" 0 "$LD" -v
 has "ld -v" "ascc ld"
 st "ld --version with inputs" 0 "$LD" --version -o p4 main.o m1.o m2.o -lSystem
