@@ -15,10 +15,23 @@ index 9411b05c5..1668fa7c0 100644
  /* Tell collect2 to run dsymutil for us as necessary.  */
  #define COLLECT_RUN_DSYMUTIL 1
 diff --git a/libgcc/config/aarch64/lse.S b/libgcc/config/aarch64/lse.S
-index 2c6f7db6e..4d43eb954 100644
+index 2c6f7db6e..1be014c2c 100644
 --- a/libgcc/config/aarch64/lse.S
 +++ b/libgcc/config/aarch64/lse.S
-@@ -197,8 +197,12 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
+@@ -61,7 +61,11 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
+ #if __ELF__
+ 	.hidden	__aarch64_have_lse_atomics
+ #else
+-	.private_extern	__aarch64_have_lse_atomics
++/* ascc bootstrap chain: Mach-O symbols carry a leading underscore, so the
++   C variable is ___aarch64_have_lse_atomics (as JUMP_IF_NOT_LSE below
++   uses).  The unprefixed name left an undefined symbol in every object,
++   which a linker that resolves all undefined symbols rejects.  */
++	.private_extern	___aarch64_have_lse_atomics
+ #endif
+ 
+ /* Turn size and memory model defines into mnemonic fragments.  */
+@@ -197,8 +201,12 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
  	.text
  	.balign	16
  	.private_extern	_\name
