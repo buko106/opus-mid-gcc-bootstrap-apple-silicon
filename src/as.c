@@ -3945,7 +3945,8 @@ static void do_directive(const char *d) {
   else if (D(".include")) {
     /* .include "file": searched in the current directory, then in the
        -I directories (like Apple as), and assembled in place */
-    char name[1024], *path = NULL, *src, *save_lp;
+    char name[1024], *path = NULL, *src;
+    const char *save_lp;
     const char *save_file;
     int n = 0, save_line, i;
     skip_ws();
