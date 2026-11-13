@@ -2379,6 +2379,32 @@ static void do_movi(int inv) {
   }
 }
 
+/* SIMD shift by immediate (vector, or scalar d registers):
+   base has U and opcode; right shifts encode 2*esize - shift */
+static void do_vshift_imm(uint32_t base, int right) {
+  Operand *d = &ops[0], *n = &ops[1];
+  int64_t sh;
+  int esize;
+  uint32_t imm;
+  if (!expect_ops(3) || !is_const_imm(&ops[2], &sh))
+    return (void)bad();
+  if (d->kind == OP_REG && d->cls == RC_D && n->kind == OP_REG && n->cls == RC_D) {
+    esize = 64;
+    base |= 0x50000000u; /* scalar */
+  } else if (d->kind == OP_VREG && n->kind == OP_VREG && d->arr == n->arr &&
+             (d->arr == AR_8B || d->arr == AR_16B || d->arr == AR_4H ||
+              d->arr == AR_8H || d->arr == AR_2S || d->arr == AR_4S ||
+              d->arr == AR_2D)) {
+    esize = 8 << size_of_arr(d->arr);
+    base |= q_of(d->arr);
+  } else
+    return (void)bad();
+  if (right ? (sh < 1 || sh > esize) : (sh < 0 || sh >= esize))
+    return (void)bad();
+  imm = right ? (uint32_t)(2 * esize - sh) : (uint32_t)(esize + sh);
+  emit_insn(base | (imm << 16) | (n->num << 5) | d->num);
+}
+
 /* three-same vector ops: base with size bits 0 */
 /* sized: 1 = size field from the arrangement, 2 = bitwise op (8b/16b only) */
 static void do_v3same(uint32_t base, int sized) {
@@ -3117,6 +3143,22 @@ static void assemble_insn(const char *mn) {
       }
   }
   /* SIMD subset */
+  {
+    static const struct {
+      const char *n;
+      uint32_t base;
+      int right;
+    } sh[] = {{"sshr", 0x0f000400u, 1},  {"ushr", 0x2f000400u, 1},
+              {"ssra", 0x0f001400u, 1},  {"usra", 0x2f001400u, 1},
+              {"srshr", 0x0f002400u, 1}, {"urshr", 0x2f002400u, 1},
+              {"sri", 0x2f004400u, 1},   {"shl", 0x0f005400u, 0},
+              {"sli", 0x2f005400u, 0},   {NULL, 0, 0}};
+    for (i = 0; sh[i].n; i++)
+      if (IS(sh[i].n)) {
+        do_vshift_imm(sh[i].base, sh[i].right);
+        return;
+      }
+  }
   if (IS("movi")) { do_movi(0); return; }
   if (IS("mvni")) { do_movi(1); return; }
   if (IS("dup")) { do_dup(); return; }
