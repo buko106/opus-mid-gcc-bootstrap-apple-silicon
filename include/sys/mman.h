@@ -1,5 +1,8 @@
 #ifndef _ASCC_SYS_MMAN_H
 #define _ASCC_SYS_MMAN_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <sys/types.h>
 #define PROT_NONE 0x00
 #define PROT_READ 0x01
@@ -31,4 +34,7 @@ int mlock(const void *, size_t);
 int munlock(const void *, size_t);
 int shm_unlink(const char *);
 int shm_open(const char *, int, ...);
+#ifdef __cplusplus
+}
+#endif
 #endif

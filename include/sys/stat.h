@@ -1,5 +1,8 @@
 #ifndef _ASCC_SYS_STAT_H
 #define _ASCC_SYS_STAT_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <sys/types.h>
 #include <sys/_timespec.h>
 struct stat {
@@ -80,4 +83,7 @@ int mkdirat(int, const char *, mode_t);
 int futimens(int, const struct timespec[2]);
 int utimensat(int, const char *, const struct timespec[2], int);
 int chflags(const char *, __uint32_t);
+#ifdef __cplusplus
+}
+#endif
 #endif

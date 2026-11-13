@@ -1,5 +1,8 @@
 #ifndef _ASCC_XLOCALE_H
 #define _ASCC_XLOCALE_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <locale.h>
 typedef struct _xlocale *locale_t;
 #define LC_ALL_MASK 0x3f
@@ -15,4 +18,7 @@ int freelocale(locale_t);
 locale_t newlocale(int, const char *, locale_t);
 locale_t uselocale(locale_t);
 const char *querylocale(int, locale_t);
+#ifdef __cplusplus
+}
+#endif
 #endif

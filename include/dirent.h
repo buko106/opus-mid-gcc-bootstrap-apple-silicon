@@ -1,5 +1,8 @@
 #ifndef _ASCC_DIRENT_H
 #define _ASCC_DIRENT_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <sys/types.h>
 struct dirent {
   __uint64_t d_ino;
@@ -31,4 +34,7 @@ long telldir(DIR *);
 int dirfd(DIR *);
 int scandir(const char *, struct dirent ***, int (*)(const struct dirent *), int (*)(const struct dirent **, const struct dirent **));
 int alphasort(const struct dirent **, const struct dirent **);
+#ifdef __cplusplus
+}
+#endif
 #endif

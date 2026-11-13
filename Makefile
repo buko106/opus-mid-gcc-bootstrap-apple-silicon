@@ -5,6 +5,10 @@
 #   make stage2   ascc built by stage1 ascc
 #   make stage3   ascc built by stage2 ascc; must be identical to stage2
 #   make test     unit tests, coverage, self-host check, asm checks
+#   make fetch            download and verify the GCC/GMP/MPFR/MPC sources
+#   make gcc47-arm64      GCC 4.7 arm64 port built by ascc (single stage)
+#   make gcc47-bootstrap  GCC 4.7 3-stage bootstrap started by ascc
+#   make gcc10-bootstrap  GCC 10.5 3-stage bootstrap started by GCC 4.7
 
 ROOT     := $(abspath .)
 BUILD    := $(ROOT)/build
@@ -47,9 +51,9 @@ selfhost: $(BUILD)/stage3/ascc
 COVDIR   := $(BUILD)/cov
 TESTS_C  := $(wildcard tests/c/*.c)
 
-.PHONY: unittest asmcheck diagcheck coverage
+.PHONY: unittest asmcheck diagcheck drivercheck toolscheck coverage
 
-test: selfhost unittest asmcheck diagcheck coverage
+test: selfhost unittest asmcheck diagcheck drivercheck toolscheck coverage
 	@echo "make test: all checks passed"
 
 unittest: $(BUILD)/stage3/ascc
@@ -67,6 +71,12 @@ asmcheck: $(BUILD)/stage3/ascc
 diagcheck: $(BUILD)/stage3/ascc
 	sh tests/diag.sh $(BUILD)/stage3/ascc
 
+drivercheck: $(BUILD)/stage3/ascc
+	sh tests/driver.sh $(BUILD)/stage3/ascc
+
+toolscheck: $(BUILD)/stage3/ascc
+	sh tests/tools.sh $(BUILD)/stage3
+
 $(COVDIR)/ascc: $(BUILD)/stage3/ascc src/covrt.c
 	@mkdir -p $(COVDIR)
 	$(BUILD)/stage3/ascc -fascc-coverage $(DEFS) -o $@ $(SRCS) src/covrt.c
@@ -78,3 +88,26 @@ coverage: $(COVDIR)/ascc
 
 clean:
 	rm -rf $(BUILD)
+
+# ------------------------------------------------------------ GCC chain
+.PHONY: fetch deps gcc47-arm64 gcc47-bootstrap gcc10-bootstrap
+
+fetch:
+	sh gccbuild/fetch.sh
+
+$(BUILD)/deps/install/lib/libmpc.a: $(BUILD)/stage3/ascc
+	sh gccbuild/build-deps.sh
+
+deps: $(BUILD)/deps/install/lib/libmpc.a
+
+gcc47-arm64: selfhost deps
+	sh gccbuild/build-gcc47-arm64.sh
+
+gcc47-bootstrap: selfhost deps
+	sh gccbuild/build-gcc47-bootstrap.sh
+	sh gccbuild/check-gcc47.sh
+
+gcc10-bootstrap: selfhost deps
+	test -x $(BUILD)/gcc47/install/bin/g++ || $(MAKE) gcc47-bootstrap
+	sh gccbuild/build-gcc10-bootstrap.sh
+	sh gccbuild/check-gcc10.sh

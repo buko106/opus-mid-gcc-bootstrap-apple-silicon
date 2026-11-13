@@ -1,5 +1,8 @@
 #ifndef _ASCC_COMPLEX_H
 #define _ASCC_COMPLEX_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 /* Only usable by compilers with _Complex (GCC); ascc has none. */
 #define complex _Complex
 #define _Complex_I (__extension__ 1.0iF)
@@ -48,4 +51,7 @@ long double cimagl(long double complex);
 long double complex conjl(long double complex);
 long double complex cprojl(long double complex);
 long double creall(long double complex);
+#ifdef __cplusplus
+}
+#endif
 #endif

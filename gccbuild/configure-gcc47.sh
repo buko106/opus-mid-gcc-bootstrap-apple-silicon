@@ -15,7 +15,7 @@ AR_FOR_TARGET="$TOOLS/ar" RANLIB_FOR_TARGET="$TOOLS/ranlib" NM_FOR_TARGET="$TOOL
 AS_FOR_TARGET="$TOOLS/as" LD_FOR_TARGET="$TOOLS/ld" \
 "$SRC/configure" \
   --build=aarch64-apple-darwin20 --host=aarch64-apple-darwin20 --target=aarch64-apple-darwin20 \
-  --prefix="$OBJ/../install" \
+  --prefix="${PREFIX:-$OBJ/../install}" \
   --with-as="$TOOLS/as" --with-ld="$TOOLS/ld" \
   --with-native-system-header-dir="$ROOT/include" \
   --with-gmp="$DEPS" --with-mpfr="$DEPS" --with-mpc="$DEPS" \

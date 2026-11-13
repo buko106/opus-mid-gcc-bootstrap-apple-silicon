@@ -1,5 +1,8 @@
 #ifndef _ASCC_MACH_O_GETSECT_H
 #define _ASCC_MACH_O_GETSECT_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <stdint.h>
 #include <mach-o/loader.h>
 char *getsectdata(const char *, const char *, unsigned long *);
@@ -10,4 +13,7 @@ uint8_t *getsectiondata(const struct mach_header_64 *, const char *, const char 
 unsigned long get_end(void);
 unsigned long get_etext(void);
 unsigned long get_edata(void);
+#ifdef __cplusplus
+}
+#endif
 #endif

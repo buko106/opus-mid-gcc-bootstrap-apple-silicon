@@ -1,5 +1,8 @@
 #ifndef _ASCC_SYS_PARAM_H
 #define _ASCC_SYS_PARAM_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <sys/types.h>
 #include <limits.h>
 #define MAXPATHLEN PATH_MAX
@@ -19,4 +22,7 @@
 #define howmany(x, y) ((((x) % (y)) == 0) ? ((x) / (y)) : (((x) / (y)) + 1))
 #define roundup(x, y) ((((x) + ((y) - 1)) / (y)) * (y))
 #define powerof2(x) ((((x) - 1) & (x)) == 0)
+#ifdef __cplusplus
+}
+#endif
 #endif

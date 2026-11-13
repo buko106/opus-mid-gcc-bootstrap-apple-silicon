@@ -1,5 +1,8 @@
 #ifndef _ASCC_MACH_O_LOADER_H
 #define _ASCC_MACH_O_LOADER_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <stdint.h>
 struct mach_header {
   uint32_t magic; int32_t cputype; int32_t cpusubtype; uint32_t filetype;
@@ -27,4 +30,7 @@ struct section_64 {
   uint32_t offset; uint32_t align; uint32_t reloff; uint32_t nreloc;
   uint32_t flags; uint32_t reserved1; uint32_t reserved2; uint32_t reserved3;
 };
+#ifdef __cplusplus
+}
+#endif
 #endif

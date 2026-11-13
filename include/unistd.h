@@ -1,8 +1,15 @@
 #ifndef _ASCC_UNISTD_H
 #define _ASCC_UNISTD_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <sys/types.h>
 #ifndef NULL
+#ifdef __cplusplus
+#define NULL __null
+#else
 #define NULL ((void *)0)
+#endif
 #endif
 #define STDIN_FILENO 0
 #define STDOUT_FILENO 1
@@ -132,4 +139,7 @@ int issetugid(void);
 char *mkdtemp(char *);
 int mkstemp(char *);
 int mkstemps(char *, int);
+#ifdef __cplusplus
+}
+#endif
 #endif

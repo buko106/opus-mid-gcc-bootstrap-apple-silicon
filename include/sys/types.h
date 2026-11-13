@@ -1,5 +1,8 @@
 #ifndef _ASCC_SYS_TYPES_H
 #define _ASCC_SYS_TYPES_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <_ascc_types.h>
 typedef unsigned char u_char;
 typedef unsigned short u_short;
@@ -85,4 +88,7 @@ typedef struct fd_set { __int32_t fds_bits[32]; } fd_set;
 #define minor(x) ((__int32_t)((x) & 0xffffff))
 #define makedev(x, y) ((dev_t)(((x) << 24) | (y)))
 #include <sys/_pthread_types.h>
+#ifdef __cplusplus
+}
+#endif
 #endif

@@ -1,5 +1,8 @@
 #ifndef _ASCC_FCNTL_H
 #define _ASCC_FCNTL_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <sys/types.h>
 #define O_RDONLY 0x0000
 #define O_WRONLY 0x0001
@@ -58,4 +61,7 @@ int flock(int, int);
 #define LOCK_EX 2
 #define LOCK_NB 4
 #define LOCK_UN 8
+#ifdef __cplusplus
+}
+#endif
 #endif

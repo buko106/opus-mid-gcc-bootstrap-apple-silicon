@@ -572,8 +572,16 @@ static bool expand_macro(Token **rest, Token *tok) {
   m = find_macro(tok);
   if (!m)
     return false;
+  /* the invocation's location, used for tokens it expands to (-E) */
+  if (!tok->origin) {
+    tok->line_delta = tok->file->line_delta;
+    tok->filename = tok->file->display_name;
+  }
   if (m->handler) {
     *rest = m->handler(tok);
+    (*rest)->origin = tok;
+    (*rest)->at_bol = tok->at_bol;
+    (*rest)->has_space = tok->has_space;
     (*rest)->next = tok->next;
     return true;
   }
@@ -712,8 +720,8 @@ static char *detect_include_guard(Token *tok) {
     }
     if (equal(tok->next, "endif") && tok->next->next->kind == TK_EOF)
       return macro;
-    if (equal(tok, "if") || equal(tok, "ifdef") || equal(tok, "ifndef"))
-      tok = skip_cond_incl(tok->next);
+    if (equal(tok->next, "if") || equal(tok->next, "ifdef") || equal(tok->next, "ifndef"))
+      tok = skip_cond_incl2(tok->next->next); /* nested block */
     else
       tok = tok->next;
   }

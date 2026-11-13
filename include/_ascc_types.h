@@ -1,5 +1,8 @@
 /* ascc: basic Darwin arm64 types shared by the headers. */
 #ifndef _ASCC_TYPES_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 #define _ASCC_TYPES_H
 typedef signed char __int8_t;
 typedef unsigned char __uint8_t;
@@ -37,4 +40,7 @@ typedef __uint32_t __darwin_useconds_t;
 typedef __uint32_t __darwin_socklen_t;
 typedef __int64_t __darwin_fpos_t;
 #define __DARWIN_NULL ((void *)0)
+#ifdef __cplusplus
+}
+#endif
 #endif

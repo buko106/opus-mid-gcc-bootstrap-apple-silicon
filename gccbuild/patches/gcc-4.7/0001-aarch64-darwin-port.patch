@@ -1644,8 +1644,13 @@ index b64da4a26..79f3c0058 100644
  	tm_file="$tm_file i386/darwin-lib.h"
 diff --git a/libgcc/config/aarch64/t-darwin b/libgcc/config/aarch64/t-darwin
 new file mode 100644
-index 000000000..9adb1f894
+index 000000000..052b903e9
 --- /dev/null
 +++ b/libgcc/config/aarch64/t-darwin
-@@ -0,0 +1 @@
+@@ -0,0 +1,6 @@
 +# Darwin arm64 libgcc: static libgcc only.
++
++# Unwinding: modern Darwin has no keymgr, so unwind-dw2-fde-darwin.c cannot
++# find any FDE.  The system unwinder in libSystem (libunwind) reads __eh_frame
++# directly, so use it and keep only the C personality routine here.
++LIB2ADDEH = $(srcdir)/unwind-c.c

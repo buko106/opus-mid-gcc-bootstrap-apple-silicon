@@ -110,6 +110,7 @@ struct Frag {
   uint64_t offset;
   uint64_t size;
   Sym *atom;
+  int idx; /* position in sec->frags */
 };
 
 struct Section {
@@ -121,6 +122,7 @@ struct Section {
   Frag **frags;
   int nfrags, capfrags;
   int has_insns;
+  int stub_size; /* section_64.reserved2 for symbol_stubs */
   Sym *cur_atom;
   uint64_t addr;
   uint64_t size;
@@ -232,6 +234,7 @@ static Frag *new_frag(Section *s, int kind) {
   f->sec = s;
   f->line = cur_line;
   f->atom = s->cur_atom;
+  f->idx = s->nfrags;
   if (s->nfrags == s->capfrags) {
     s->capfrags = s->capfrags ? s->capfrags * 2 : 16;
     s->frags = xrealloc(s->frags, sizeof(Frag *) * s->capfrags);
@@ -490,8 +493,9 @@ static Expr *parse_primary(void) {
       case 'n': c = '\n'; break;
       case 't': c = '\t'; break;
       case 'r': c = '\r'; break;
-      case '0': c = 0; break;
-      default: c = (unsigned char)*lp;
+      case 'b': c = '\b'; break;
+      case 'f': c = '\f'; break;
+      default: c = (unsigned char)*lp; /* LLVM MC: '\0' is '0' */
       }
     } else
       c = (unsigned char)*lp;
@@ -655,6 +659,38 @@ static int diff_resolved(Sym *a, Sym *b, int inset) {
 
 static int eval_expr(Expr *e, RVal *rv, int inset, int layout);
 
+/* Set while evaluating a data directive's value at parse time. */
+static int fold_parse;
+
+/* LLVM MC folds a - b while parsing when both are defined in the same
+   section and only data or constant-size fill fragments lie between them
+   (at that point no atoms are assigned yet, so atoms do not matter). */
+static int parse_time_disp(Sym *a, Sym *b, int64_t *d) {
+  Section *s = a->sec;
+  int i, lo, hi;
+  int64_t sum = 0;
+  if (!a->defined || !b->defined || a->sec != b->sec)
+    return 0;
+  lo = b->frag->idx;
+  hi = a->frag->idx;
+  if (lo > hi) {
+    i = lo; lo = hi; hi = i;
+  }
+  for (i = lo; i < hi; i++) {
+    Frag *f = s->frags[i];
+    if (f->kind == FR_DATA)
+      sum += (int64_t)f->data.len;
+    else if (f->kind == FR_FILL && !f->e)
+      sum += (int64_t)f->size;
+    else
+      return 0;
+  }
+  if (b->frag->idx > a->frag->idx)
+    sum = -sum;
+  *d = sum + (int64_t)a->off - (int64_t)b->off;
+  return 1;
+}
+
 static int eval_sym(Sym *s, int mod, RVal *rv, int inset, int layout) {
   memset(rv, 0, sizeof(*rv));
   if (s->var && mod == VK_NONE) {
@@ -719,6 +755,13 @@ static int eval_expr(Expr *e, RVal *rv, int inset, int layout) {
       rv->c += (int64_t)sym_offset(rv->a) - (int64_t)sym_offset(rv->b);
       rv->a = rv->b = NULL;
     }
+    if (rv->a && rv->b && fold_parse && !layout && rv->amod == VK_NONE) {
+      int64_t d;
+      if (parse_time_disp(rv->a, rv->b, &d)) {
+        rv->c += d;
+        rv->a = rv->b = NULL;
+      }
+    }
     return 1;
   }
   if (l.a || l.b || r.a || r.b)
@@ -734,7 +777,7 @@ static int eval_expr(Expr *e, RVal *rv, int inset, int layout) {
     rv->c = l.c % r.c;
     break;
   case B_SHL: rv->c = (int64_t)((uint64_t)l.c << r.c); break;
-  case B_SHR: rv->c = l.c >> r.c; break;
+  case B_SHR: /* Mach-O (LLVM MC) shifts right logically */ rv->c = (int64_t)((uint64_t)l.c >> r.c); break;
   case B_AND: rv->c = l.c & r.c; break;
   case B_OR: rv->c = l.c | r.c; break;
   case B_XOR: rv->c = l.c ^ r.c; break;
@@ -767,6 +810,21 @@ static int expr_has_sym(Expr *e) {
   if (e->op == 's')
     return 1;
   return expr_has_sym(e->l) || expr_has_sym(e->r);
+}
+
+/* Evaluates a data directive's value the way the integrated assembler
+   does while parsing (see parse_time_disp). */
+static int fold_now(Expr *e, int64_t *v) {
+  RVal rv;
+  int ok;
+  if (!expr_has_sym(e))
+    return eval_abs_now(e, v);
+  fold_parse = 1;
+  ok = eval_expr(e, &rv, 0, 0) && !rv.a && !rv.b;
+  fold_parse = 0;
+  if (ok)
+    *v = rv.c;
+  return ok;
 }
 
 static void register_expr_syms(Expr *e) {
@@ -812,7 +870,7 @@ static void emit_value(Expr *e, int size) {
   unsigned char b[8];
   Frag *f;
   int i;
-  if (!expr_has_sym(e) && eval_abs_now(e, &v)) {
+  if (fold_now(e, &v)) {
     for (i = 0; i < size; i++)
       b[i] = (unsigned char)(v >> (8 * i));
     emit_bytes(b, size);
@@ -1346,6 +1404,10 @@ static int encode_fp_imm(double d, uint32_t *imm8) {
 }
 
 static int expect_ops(int n) {
+  if (nops < n) {
+    error("too few operands for instruction");
+    return 0;
+  }
   if (nops != n) {
     error("invalid operand for instruction");
     return 0;
@@ -1531,9 +1593,7 @@ static void enc_movwide(int opc, Operand *d, int64_t imm, int hw) {
 }
 
 static void enc_bitfield(int opc, Operand *d, Operand *n, int immr, int imms) {
-  int sf = sf_of(d);
-  if (!is_gp(d) || !is_gp(n))
-    return (void)bad();
+  int sf = sf_of(d); /* callers check the operands */
   emit_insn((sf ? 0x80000000u : 0) | ((uint32_t)opc << 29) | 0x13000000u |
             ((uint32_t)sf << 22) | ((uint32_t)immr << 16) |
             ((uint32_t)imms << 10) | (rz(n) << 5) | rz(d));
@@ -1584,13 +1644,8 @@ static void do_mov(void) {
     int width = sf ? 64 : 32;
     int hw;
     uint32_t enc;
-    if (!sf) {
-      if ((int64_t)v < -(int64_t)0x80000000LL || v > 0xffffffffLL) {
-        error("expected compatible register or logical immediate");
-        return;
-      }
-      u &= 0xffffffffULL;
-    }
+    if (!sf)
+      u &= 0xffffffffULL; /* LLVM MC silently truncates */
     /* movz */
     for (hw = 0; hw < width / 16; hw++)
       if ((u & ~(0xffffULL << (16 * hw))) == 0 &&
@@ -1609,9 +1664,6 @@ static void do_mov(void) {
         if ((nu & ~(0xffffULL << (16 * hw))) == 0) {
           if (d->is_sp)
             break;
-          if (!sf && (nu >> (16 * hw)) == 0xffff && 0)
-            break;
-          /* 32-bit: movn wd, #0xffff is mov wd, #0xffff0000? keep valid */
           enc_movwide(0, d, (int64_t)(nu >> (16 * hw)), hw);
           return;
         }
@@ -2033,11 +2085,8 @@ static void do_fcmp(int e) {
     return (void)bad();
   if (m->kind == OP_IMM) {
     if (!(m->has_float && m->f == 0.0)) {
-      int64_t v;
-      if (m->has_float || !is_const_imm(m, &v) || v != 0) {
-        error("expected floating-point constant #0.0");
-        return;
-      }
+      error("expected floating-point constant #0.0");
+      return;
     }
     emit_insn(base | ftype_of(n) | 8u | (n->num << 5));
     return;
@@ -2152,7 +2201,7 @@ static uint32_t size_of_arr(int arr) {
 void enc_simd_mov(Operand *d, Operand *s) {
   if (d->kind == OP_VREG && s->kind == OP_VREG) {
     /* mov vd.16b, vn.16b == orr vd, vn, vn */
-    if (d->arr != s->arr || (d->arr != AR_8B && d->arr != AR_16B))
+    if (d->arr != s->arr)
       return (void)bad();
     emit_insn(0x0ea01c00u | q_of(d->arr) | (s->num << 16) | (s->num << 5) |
               d->num);
@@ -2506,8 +2555,6 @@ static void assemble_insn(const char *mn) {
           do_v3same(vb[lg[i].opc + lg[i].neg * 4], 0);
           return;
         }
-        if (lg[i].neg && (c->kind == OP_IMM || c->kind == OP_EXPR))
-          return (void)bad();
         enc_logical(lg[i].opc, lg[i].neg, a, b, c, opt(3));
         return;
       }
@@ -3090,12 +3137,8 @@ static int parse_string(Buf *out) {
       case 'r': c = '\r'; break;
       case 'b': c = '\b'; break;
       case 'f': c = '\f'; break;
-      case 'v': c = '\v'; break;
-      case 'a': c = 7; break;
-      case 'e': c = 27; break;
       case '\\': c = '\\'; break;
       case '"': c = '"'; break;
-      case '\'': c = '\''; break;
       case 'x': case 'X': {
         int v = 0;
         while (isxdigit((unsigned char)*lp)) {
@@ -3111,6 +3154,10 @@ static int parse_string(Buf *out) {
           for (k = 0; k < 2 && *lp >= '0' && *lp <= '7'; k++)
             v = v * 8 + (*lp++ - '0');
           c = v & 0xff;
+        } else {
+          /* like LLVM MC, only \b \f \n \r \t \" \\ \x and octal */
+          error("invalid escape sequence (unrecognized character)");
+          return 0;
         }
       }
     }
@@ -3324,7 +3371,7 @@ static void dir_leb(int sign) {
   for (;;) {
     Expr *e = parse_expr();
     int64_t v;
-    if (!expr_has_sym(e) && eval_abs_now(e, &v)) {
+    if (fold_now(e, &v)) {
       Buf b;
       buf_init(&b);
       if (sign)
@@ -3398,6 +3445,7 @@ static int read_word(char *out, int max) {
 static void dir_section(void) {
   char seg[64], sect[64], word[64];
   uint32_t flags = 0;
+  int64_t stub_size = 0;
   int i;
   read_word(seg, sizeof(seg));
   if (!expect_comma())
@@ -3429,8 +3477,10 @@ static void dir_section(void) {
           if (strcmp(word, section_attrs[i].name) == 0)
             break;
         if (!section_attrs[i].name) {
-          if (word[0] && isdigit((unsigned char)word[0]))
+          if (word[0] && isdigit((unsigned char)word[0])) {
+            stub_size = strtoll(word, NULL, 0);
             break;
+          }
           if (word[0] == 0 && (flags & SECTION_TYPE) == S_SYMBOL_STUBS)
             break;
           error("mach-o section specifier has invalid attribute");
@@ -3446,10 +3496,13 @@ static void dir_section(void) {
       if (*lp == ',') {
         lp++;
         read_word(word, sizeof(word));
+        stub_size = strtoll(word, NULL, 0);
       }
     }
   }
   switch_section(get_section(seg, sect, flags));
+  if (stub_size)
+    cur_sec->stub_size = (int)stub_size;
 }
 
 static void dir_named_section(const char *seg, const char *sect,
@@ -3635,11 +3688,11 @@ static void do_directive(const char *d) {
   }
   else if (D(".lazy_reference")) {
     Sym *s = parse_sym_name();
-    if (s) { sym_register(s); s->lazy_ref = 1; }
+    if (s) { sym_register(s); s->lazy_ref = 1; s->no_dead_strip = 1; }
   }
   else if (D(".reference")) {
     Sym *s = parse_sym_name();
-    if (s) sym_register(s);
+    if (s) { sym_register(s); s->no_dead_strip = 1; }
   }
   else if (D(".cold")) {
     Sym *s = parse_sym_name();
@@ -3663,8 +3716,10 @@ static void do_directive(const char *d) {
       return;
     }
     s->var = e;
-    if (!s->is_temp)
+    if (!s->is_temp) { /* Apple as marks .set/.equ symbols no_dead_strip */
       sym_register(s);
+      s->no_dead_strip = 1;
+    }
   }
   else if (D(".comm")) dir_comm(0);
   else if (D(".lcomm")) dir_comm(1);
@@ -4632,7 +4687,7 @@ static int write_object(const char *path) {
         buf_u32(&out, (uint32_t)s->nrelocs);
         buf_u32(&out, sflags);
         buf_u32(&out, 0);
-        buf_u32(&out, 0);
+        buf_u32(&out, (uint32_t)s->stub_size);
         buf_u32(&out, 0);
         roff += s->relocs.len;
       }

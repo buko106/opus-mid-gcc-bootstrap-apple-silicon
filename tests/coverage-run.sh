@@ -3,7 +3,7 @@
 # the instrumented ascc in $1 ($2 is the reference stage3 binary).
 # Counts are written to $1/data; scratch files go to $1/work.
 set -e
-COV=$1
+COV=$(cd "$1" && pwd)
 REF=$2
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 C=$COV/ascc
@@ -41,3 +41,7 @@ sh tests/asm_compare.sh "$C" tests/asm/*.s > /dev/null
 "$W/b" > /dev/null
 # diagnostics
 sh tests/diag.sh "$C" > /dev/null
+# driver options
+sh tests/driver.sh "$C" > /dev/null
+# linker, archiver and nm
+sh tests/tools.sh "$COV" > /dev/null

@@ -1,5 +1,8 @@
 #ifndef _ASCC_SYS_RESOURCE_H
 #define _ASCC_SYS_RESOURCE_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <sys/time.h>
 typedef __uint64_t rlim_t;
 struct rlimit { rlim_t rlim_cur; rlim_t rlim_max; };
@@ -45,4 +48,7 @@ int getrlimit(int, struct rlimit *);
 int getrusage(int, struct rusage *);
 int setpriority(int, id_t, int);
 int setrlimit(int, const struct rlimit *);
+#ifdef __cplusplus
+}
+#endif
 #endif

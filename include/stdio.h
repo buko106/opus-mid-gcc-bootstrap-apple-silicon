@@ -1,8 +1,15 @@
 #ifndef _ASCC_STDIO_H
 #define _ASCC_STDIO_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <_ascc_types.h>
 #ifndef NULL
+#ifdef __cplusplus
+#define NULL __null
+#else
 #define NULL ((void *)0)
+#endif
 #endif
 #ifndef _SIZE_T
 #define _SIZE_T
@@ -152,4 +159,7 @@ int fpurge(FILE *);
 #define fileno_unlocked(f) fileno(f)
 #define fread_unlocked(p, s, n, f) fread(p, s, n, f)
 #define fgets_unlocked(s, n, f) fgets(s, n, f)
+#ifdef __cplusplus
+}
+#endif
 #endif

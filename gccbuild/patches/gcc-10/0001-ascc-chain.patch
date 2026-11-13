@@ -1,0 +1,16 @@
+diff --git a/gcc/config/darwin.h b/gcc/config/darwin.h
+index 9411b05c5..1668fa7c0 100644
+--- a/gcc/config/darwin.h
++++ b/gcc/config/darwin.h
+@@ -429,7 +429,10 @@ extern GTY(()) int darwin_ms_struct;
+       }}}\
+    }}}}}}}}"
+ 
+-#define LINK_COMMAND_SPEC LINK_COMMAND_SPEC_A DSYMUTIL_SPEC
++/* ascc bootstrap chain: dsymutil belongs to the macOS toolchain, which may
++   not be used to produce artifacts, so never ask collect2 to run it.  The
++   DWARF stays in the object files (where debuggers can still find it).  */
++#define LINK_COMMAND_SPEC LINK_COMMAND_SPEC_A
+ 
+ /* Tell collect2 to run dsymutil for us as necessary.  */
+ #define COLLECT_RUN_DSYMUTIL 1

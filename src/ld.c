@@ -334,8 +334,14 @@ static void load_archive(const char *path, const unsigned char *d,
     sizebuf[10] = 0;
     msize = (size_t)strtoul(sizebuf, NULL, 10);
     mdata = d + off + 60;
+    if (msize > size - off - 60) {
+      lerror("%s: truncated archive", path);
+      return;
+    }
     if (strncmp(namebuf, "#1/", 3) == 0) {
       namelen = (size_t)atoi(namebuf + 3);
+      if (namelen > msize)
+        namelen = msize;
       name = (const char *)mdata;
       mdata += namelen;
     } else {
@@ -391,7 +397,10 @@ static void resolve_archives(void) {
         Archive *ar = archives.data[j];
         InFile *mf = map_get(&ar->symidx, s->name);
         if (mf && !mf->loaded) {
-          parse_object(mf);
+          /* a member that fails to parse must not be retried */
+          mf->loaded = 1;
+          if (parse_object(mf) != 0)
+            return;
           vec_push(&files, mf);
           changed = 1;
           break;
@@ -1166,6 +1175,7 @@ static void build_rebase(Buf *b) {
 
 static void build_bind(Buf *b) {
   int i;
+  int64_t cur_addend = 0; /* the addend is bind-stream state in dyld */
   for (i = 0; i < nbinds; i++) {
     Bind *bd = &binds[i];
     uint64_t off;
@@ -1175,9 +1185,10 @@ static void build_bind(Buf *b) {
     buf_adds(b, bd->sym->name);
     buf_u8(b, 0);
     buf_u8(b, 0x50 | 1); /* SET_TYPE_IMM pointer */
-    if (bd->addend) {
+    if (bd->addend != cur_addend) {
       buf_u8(b, 0x60); /* SET_ADDEND_SLEB */
       buf_sleb(b, bd->addend);
+      cur_addend = bd->addend;
     }
     buf_u8(b, 0x70 | seg); /* SET_SEGMENT_AND_OFFSET_ULEB */
     buf_uleb(b, off);
@@ -1812,11 +1823,10 @@ int ld_main(int argc, char **argv) {
       vec_push(&libdirs, (void *)(a + 2));
     else if (strcmp(a, "-L") == 0 && i + 1 < argc)
       vec_push(&libdirs, argv[++i]);
-    else if (starts_with(a, "-l") && a[2]) {
-      char *p = format("-l%s", a + 2);
-      vec_push(&inputs, p);
-    } else if (strcmp(a, "-lazy-l") == 0 || strcmp(a, "-weak-l") == 0)
-      continue;
+    else if ((starts_with(a, "-weak-l") || starts_with(a, "-lazy-l")) && a[7])
+      vec_push(&inputs, format("-l%s", a + 7)); /* linked like -l */
+    else if (starts_with(a, "-l") && a[2])
+      vec_push(&inputs, (void *)a);
     else if (strcmp(a, "-dynamic") == 0 || strcmp(a, "-pie") == 0 ||
              strcmp(a, "-demangle") == 0 || strcmp(a, "-no_compact_unwind") == 0 ||
              strcmp(a, "-headerpad_max_install_names") == 0 ||

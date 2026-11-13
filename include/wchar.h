@@ -1,10 +1,17 @@
 #ifndef _ASCC_WCHAR_H
 #define _ASCC_WCHAR_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <_ascc_types.h>
 #include <stdio.h>
 #include <time.h>
 #ifndef NULL
+#ifdef __cplusplus
+#define NULL __null
+#else
 #define NULL ((void *)0)
+#endif
 #endif
 #ifndef _SIZE_T
 #define _SIZE_T
@@ -13,7 +20,9 @@ typedef unsigned long size_t;
 #ifndef _WCHAR_T
 #define _WCHAR_T
 #ifndef __cplusplus
+#ifndef __cplusplus
 typedef int wchar_t;
+#endif
 #endif
 #endif
 #ifndef _WINT_T
@@ -96,4 +105,7 @@ int wcswidth(const wchar_t *, size_t);
 wchar_t *wcsdup(const wchar_t *);
 int wcscasecmp(const wchar_t *, const wchar_t *);
 size_t wcsnlen(const wchar_t *, size_t);
+#ifdef __cplusplus
+}
+#endif
 #endif

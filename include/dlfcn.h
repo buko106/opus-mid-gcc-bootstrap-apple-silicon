@@ -1,5 +1,8 @@
 #ifndef _ASCC_DLFCN_H
 #define _ASCC_DLFCN_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 #define RTLD_LAZY 0x1
 #define RTLD_NOW 0x2
 #define RTLD_LOCAL 0x4
@@ -17,4 +20,7 @@ int dlclose(void *);
 char *dlerror(void);
 void *dlopen(const char *, int);
 void *dlsym(void *, const char *);
+#ifdef __cplusplus
+}
+#endif
 #endif

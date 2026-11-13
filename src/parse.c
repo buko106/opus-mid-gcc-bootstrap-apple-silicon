@@ -2445,6 +2445,7 @@ static void struct_members(Token **rest, Token *tok, Type *ty) {
       mem->ty = basety;
       mem->idx = idx++;
       mem->align = attr.align ? attr.align : mem->ty->align;
+      mem->user_align = attr.align;
       cur = cur->next = mem;
       continue;
     }
@@ -2476,6 +2477,7 @@ static void struct_members(Token **rest, Token *tok, Type *ty) {
                                  : mem->ty->align;
         if (mattr.is_packed)
           mem->align = mattr.align ? mattr.align : 1;
+        mem->user_align = mattr.align;
       }
       cur = cur->next = mem;
     }
@@ -2535,28 +2537,22 @@ static Type *struct_decl(Token **rest, Token *tok) {
       bits = align_to(bits, mem->ty->size * 8);
     } else if (mem->is_bitfield) {
       int sz = mem->ty->size;
-      int unit = ty->is_packed ? 8 : sz * 8;
       if (!ty->is_packed && bits / (sz * 8) != (bits + mem->bit_width - 1) / (sz * 8))
         bits = align_to(bits, sz * 8);
-      mem->offset = align_down(bits / 8, sz);
-      if (ty->is_packed)
-        mem->offset = bits / 8 / sz * sz;
-      mem->bit_offset = bits % (sz * 8);
       if (ty->is_packed) {
+        /* access window must cover the field: use byte-aligned window */
         mem->offset = bits / 8;
         mem->bit_offset = bits % 8;
-        /* access window must cover the field: use byte-aligned window */
+      } else {
+        mem->offset = align_down(bits / 8, sz);
+        mem->bit_offset = bits % (sz * 8);
       }
       bits += mem->bit_width;
-      (void)unit;
-      if (!ty->is_packed && mem->ty->align > ty->align && mem->name)
-        ty->align = mem->ty->align;
-      else if (!ty->is_packed && mem->ty->align > ty->align)
+      if (!ty->is_packed && mem->ty->align > ty->align)
         ty->align = mem->ty->align;
     } else {
-      int al = ty->is_packed ? (mem->align < mem->ty->align && mem->align ? mem->align : 1) : mem->align;
-      if (ty->is_packed && mem->align > 1 && mem->align != mem->ty->align)
-        al = mem->align;
+      /* in a packed struct only an explicit alignment raises a member's */
+      int al = ty->is_packed ? (mem->user_align ? mem->user_align : 1) : mem->align;
       bits = align_to(bits, al * 8);
       mem->offset = bits / 8;
       bits += mem->ty->size * 8;
@@ -3261,8 +3257,11 @@ static Token *function(Token *tok, Type *basety, VarAttr *attr) {
       while (!consume(&tok, tok, ";")) {
         Type *pty = declarator(&tok, tok, bt);
         Type *p;
-        if (pty->kind == TY_ARRAY)
-          pty = pointer_to(pty->base), pty->name = NULL;
+        if (pty->kind == TY_ARRAY || pty->kind == TY_FUNC) {
+          Token *pname = pty->name;
+          pty = pointer_to(pty->kind == TY_ARRAY ? pty->base : pty);
+          pty->name = pname;
+        }
         for (p = ty->params; p; p = p->next)
           if (p->name && pty->name && p->name->len == pty->name->len &&
               !strncmp(p->name->loc, pty->name->loc, p->name->len)) {

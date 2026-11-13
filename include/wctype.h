@@ -1,5 +1,8 @@
 #ifndef _ASCC_WCTYPE_H
 #define _ASCC_WCTYPE_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <wchar.h>
 typedef unsigned long wctype_t;
 typedef int wctrans_t;
@@ -21,4 +24,7 @@ wint_t towlower(wint_t);
 wint_t towupper(wint_t);
 wint_t towctrans(wint_t, wctrans_t);
 wctrans_t wctrans(const char *);
+#ifdef __cplusplus
+}
+#endif
 #endif

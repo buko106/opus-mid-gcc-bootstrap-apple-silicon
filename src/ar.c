@@ -53,12 +53,16 @@ static int read_archive(const char *path) {
     mtime = strtol(hdr + 16, NULL, 10);
     mode = (int)strtol(hdr + 40, NULL, 8);
     mdata = d + off + 60;
+    if (msize > size - off - 60) {
+      fprintf(stderr, "ar: %s: truncated archive\n", path);
+      exit(1);
+    }
     if (strncmp(hdr, "#1/", 3) == 0) {
       namelen = (size_t)atoi(hdr + 3);
-      if (namelen >= sizeof(name))
-        namelen = sizeof(name) - 1;
-      memcpy(name, mdata, namelen);
-      name[namelen] = 0;
+      if (namelen > msize)
+        namelen = msize;
+      /* the name is NUL padded; keep at most sizeof(name) - 1 bytes of it */
+      snprintf(name, sizeof(name), "%.*s", (int)namelen, (const char *)mdata);
       mdata += namelen;
       msize -= namelen;
     } else {

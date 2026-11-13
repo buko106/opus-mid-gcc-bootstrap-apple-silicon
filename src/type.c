@@ -350,15 +350,6 @@ void add_type(Node *node) {
   case ND_LABEL_VAL:
     node->ty = pointer_to(ty_void);
     return;
-  case ND_CAS:
-    add_type(node->cas_addr);
-    add_type(node->cas_old);
-    add_type(node->cas_new);
-    node->ty = ty_bool;
-    return;
-  case ND_EXCH:
-    node->ty = node->lhs->ty->base;
-    return;
   default:
     break;
   }

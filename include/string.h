@@ -1,8 +1,15 @@
 #ifndef _ASCC_STRING_H
 #define _ASCC_STRING_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <_ascc_types.h>
 #ifndef NULL
+#ifdef __cplusplus
+#define NULL __null
+#else
 #define NULL ((void *)0)
+#endif
 #endif
 #ifndef _SIZE_T
 #define _SIZE_T
@@ -49,4 +56,7 @@ char *strsep(char **, const char *);
 void swab(const void *__restrict, void *__restrict, long);
 int timingsafe_bcmp(const void *, const void *, size_t);
 #include <strings.h>
+#ifdef __cplusplus
+}
+#endif
 #endif

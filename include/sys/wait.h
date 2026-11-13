@@ -1,5 +1,8 @@
 #ifndef _ASCC_SYS_WAIT_H
 #define _ASCC_SYS_WAIT_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <sys/types.h>
 #include <sys/resource.h>
 #define WNOHANG 0x00000001
@@ -23,4 +26,7 @@ pid_t wait(int *);
 pid_t waitpid(pid_t, int *, int);
 pid_t wait3(int *, int, struct rusage *);
 pid_t wait4(pid_t, int *, int, struct rusage *);
+#ifdef __cplusplus
+}
+#endif
 #endif

@@ -1,5 +1,8 @@
 #ifndef _ASCC_CTYPE_H
 #define _ASCC_CTYPE_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 /* Darwin rune type masks (as used by __maskrune and libstdc++). */
 #define _CTYPE_A 0x00000100L
 #define _CTYPE_C 0x00000200L
@@ -51,4 +54,7 @@ int isrune(int);
 int isspecial(int);
 #define _tolower(c) ((c) - 'A' + 'a')
 #define _toupper(c) ((c) - 'a' + 'A')
+#ifdef __cplusplus
+}
+#endif
 #endif

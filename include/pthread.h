@@ -1,5 +1,8 @@
 #ifndef _ASCC_PTHREAD_H
 #define _ASCC_PTHREAD_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <sys/types.h>
 #include <sched.h>
 #include <time.h>
@@ -91,4 +94,7 @@ int pthread_sigmask(int, const __darwin_sigset_t *, __darwin_sigset_t *);
 int pthread_setname_np(const char *);
 int pthread_getname_np(pthread_t, char *, size_t);
 int pthread_threadid_np(pthread_t, __uint64_t *);
+#ifdef __cplusplus
+}
+#endif
 #endif

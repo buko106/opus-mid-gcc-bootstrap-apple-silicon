@@ -1,8 +1,15 @@
 #ifndef _ASCC_STDLIB_H
 #define _ASCC_STDLIB_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <_ascc_types.h>
 #ifndef NULL
+#ifdef __cplusplus
+#define NULL __null
+#else
 #define NULL ((void *)0)
+#endif
 #endif
 #ifndef _SIZE_T
 #define _SIZE_T
@@ -10,7 +17,9 @@ typedef unsigned long size_t;
 #endif
 #ifndef _WCHAR_T
 #define _WCHAR_T
+#ifndef __cplusplus
 typedef int wchar_t;
+#endif
 #endif
 typedef struct { int quot; int rem; } div_t;
 typedef struct { long quot; long rem; } ldiv_t;
@@ -108,4 +117,7 @@ int daemon(int, int);
 char *devname(__darwin_dev_t, __darwin_mode_t);
 int getloadavg(double[], int);
 #include <alloca.h>
+#ifdef __cplusplus
+}
+#endif
 #endif

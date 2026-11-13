@@ -1,5 +1,8 @@
 #ifndef _ASCC_SYS_SOCKET_H
 #define _ASCC_SYS_SOCKET_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <sys/types.h>
 typedef unsigned char sa_family_t;
 struct sockaddr { unsigned char sa_len; sa_family_t sa_family; char sa_data[14]; };
@@ -16,4 +19,7 @@ int shutdown(int, int);
 int socketpair(int, int, int, int *);
 ssize_t send(int, const void *, size_t, int);
 ssize_t recv(int, void *, size_t, int);
+#ifdef __cplusplus
+}
+#endif
 #endif

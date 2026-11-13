@@ -179,8 +179,6 @@ typedef enum {
   ND_CAST,
   ND_MEMZERO,
   ND_ASM,
-  ND_CAS,
-  ND_EXCH,
   ND_VA_START,
   ND_VA_ARG,
   ND_VA_COPY,
@@ -216,9 +214,6 @@ struct Node {
   int64_t begin;
   int64_t end;
   char *asm_str;
-  Node *cas_addr;
-  Node *cas_old;
-  Node *cas_new;
   Obj *var;
   int64_t val;
   double fval;
@@ -292,6 +287,7 @@ struct Member {
   Token *name;
   int idx;
   int align;
+  int user_align; /* from aligned / _Alignas, 0 if none */
   int offset;
   bool is_bitfield;
   int bit_offset;

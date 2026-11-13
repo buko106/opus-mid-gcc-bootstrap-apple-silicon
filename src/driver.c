@@ -218,25 +218,35 @@ static void print_tokens(Token *tok, FILE *out) {
   int line = 1;
   File *cur = NULL;
   for (; tok->kind != TK_EOF; tok = tok->next) {
-    if (tok->file != cur || (tok->at_bol && tok->line_no != line &&
-                             (tok->line_no < line || tok->line_no > line + 8))) {
+    /* Tokens produced by a macro expansion are placed at the outermost
+       invocation, not at the macro definition. */
+    Token *loc = tok;
+    File *file;
+    int line_no;
+    char *name;
+    while (loc->origin)
+      loc = loc->origin;
+    file = loc->file;
+    line_no = loc == tok ? tok->line_no : loc->line_no + loc->line_delta;
+    name = loc->filename ? loc->filename : loc->file->name;
+    if (file != cur || (tok->at_bol && line_no != line &&
+                        (line_no < line || line_no > line + 8))) {
       if (cur || line > 1)
         fprintf(out, "\n");
       if (!opt_P)
-        fprintf(out, "# %d \"%s\"\n", tok->line_no,
-                tok->filename ? tok->filename : tok->file->name);
-      cur = tok->file;
-      line = tok->line_no;
+        fprintf(out, "# %d \"%s\"\n", line_no, name);
+      cur = file;
+      line = line_no;
     } else if (tok->at_bol) {
-      while (line < tok->line_no) {
+      while (line < line_no) {
         fprintf(out, "\n");
         line++;
       }
-      if (line != tok->line_no)
+      if (line != line_no)
         fprintf(out, "\n");
     } else if (tok->has_space)
       fprintf(out, " ");
-    line = tok->line_no;
+    line = line_no;
     fprintf(out, "%.*s", tok->len, tok->loc);
   }
   fprintf(out, "\n");

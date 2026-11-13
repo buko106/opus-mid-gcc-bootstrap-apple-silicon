@@ -1,5 +1,8 @@
 #ifndef _ASCC_LANGINFO_H
 #define _ASCC_LANGINFO_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 typedef int nl_item;
 #define CODESET 0
 #define D_T_FMT 1
@@ -13,4 +16,7 @@ typedef int nl_item;
 #define YESEXPR 52
 #define NOEXPR 53
 char *nl_langinfo(nl_item);
+#ifdef __cplusplus
+}
+#endif
 #endif

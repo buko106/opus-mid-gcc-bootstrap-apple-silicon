@@ -1,5 +1,8 @@
 #ifndef _ASCC_MATH_H
 #define _ASCC_MATH_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 typedef float float_t;
 typedef double double_t;
 #define HUGE_VAL (__builtin_huge_val())
@@ -118,4 +121,7 @@ double scalb(double, double);
 double gamma(double);
 double significand(double);
 extern int signgam;
+#ifdef __cplusplus
+}
+#endif
 #endif

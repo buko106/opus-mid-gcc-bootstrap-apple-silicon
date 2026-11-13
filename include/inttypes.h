@@ -1,5 +1,8 @@
 #ifndef _ASCC_INTTYPES_H
 #define _ASCC_INTTYPES_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <stdint.h>
 #define PRId8 "hhd"
 #define PRId16 "hd"
@@ -66,4 +69,7 @@ intmax_t imaxabs(intmax_t);
 imaxdiv_t imaxdiv(intmax_t, intmax_t);
 intmax_t strtoimax(const char *, char **, int);
 uintmax_t strtoumax(const char *, char **, int);
+#ifdef __cplusplus
+}
+#endif
 #endif

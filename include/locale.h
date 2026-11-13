@@ -1,7 +1,14 @@
 #ifndef _ASCC_LOCALE_H
 #define _ASCC_LOCALE_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 #ifndef NULL
+#ifdef __cplusplus
+#define NULL __null
+#else
 #define NULL ((void *)0)
+#endif
 #endif
 struct lconv {
   char *decimal_point;
@@ -39,4 +46,7 @@ struct lconv {
 #define _LC_LAST 7
 struct lconv *localeconv(void);
 char *setlocale(int, const char *);
+#ifdef __cplusplus
+}
+#endif
 #endif

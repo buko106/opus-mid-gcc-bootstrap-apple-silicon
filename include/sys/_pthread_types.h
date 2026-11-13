@@ -1,5 +1,8 @@
 #ifndef _ASCC_PTHREAD_TYPES_H
 #define _ASCC_PTHREAD_TYPES_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 struct __darwin_pthread_handler_rec {
   void (*__routine)(void *);
   void *__arg;
@@ -28,4 +31,7 @@ typedef struct _opaque_pthread_once_t pthread_once_t;
 typedef struct _opaque_pthread_rwlock_t pthread_rwlock_t;
 typedef struct _opaque_pthread_rwlockattr_t pthread_rwlockattr_t;
 typedef unsigned long pthread_key_t;
+#ifdef __cplusplus
+}
+#endif
 #endif

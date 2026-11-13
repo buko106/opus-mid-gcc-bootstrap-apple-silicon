@@ -1,5 +1,8 @@
 #ifndef _ASCC_ERRNO_H
 #define _ASCC_ERRNO_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 extern int *__error(void);
 #define errno (*__error())
 #define EPERM 1
@@ -110,4 +113,7 @@ extern int *__error(void);
 #define EOWNERDEAD 105
 #define EQFULL 106
 #define ELAST 106
+#ifdef __cplusplus
+}
+#endif
 #endif

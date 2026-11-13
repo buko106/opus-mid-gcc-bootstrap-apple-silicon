@@ -1,5 +1,8 @@
 #ifndef _ASCC_SIGNAL_H
 #define _ASCC_SIGNAL_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <sys/types.h>
 #define SIGHUP 1
 #define SIGINT 2
@@ -100,4 +103,7 @@ int pthread_kill(pthread_t, int);
 extern const char *const sys_signame[NSIG];
 extern const char *const sys_siglist[NSIG];
 void psignal(int, const char *);
+#ifdef __cplusplus
+}
+#endif
 #endif

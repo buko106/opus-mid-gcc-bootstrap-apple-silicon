@@ -1,9 +1,16 @@
 #ifndef _ASCC_TIME_H
 #define _ASCC_TIME_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <sys/types.h>
 #include <sys/_timespec.h>
 #ifndef NULL
+#ifdef __cplusplus
+#define NULL __null
+#else
 #define NULL ((void *)0)
+#endif
 #endif
 struct tm {
   int tm_sec;
@@ -54,4 +61,7 @@ int clock_getres(clockid_t, struct timespec *);
 int clock_gettime(clockid_t, struct timespec *);
 int clock_settime(clockid_t, const struct timespec *);
 __uint64_t clock_gettime_nsec_np(clockid_t);
+#ifdef __cplusplus
+}
+#endif
 #endif

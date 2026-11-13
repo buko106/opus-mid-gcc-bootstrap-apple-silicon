@@ -1,5 +1,8 @@
 #ifndef _ASCC_STRINGS_H
 #define _ASCC_STRINGS_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 #ifndef _SIZE_T
 #define _SIZE_T
 typedef unsigned long size_t;
@@ -16,4 +19,7 @@ int fls(int);
 int flsl(long);
 int strcasecmp(const char *, const char *);
 int strncasecmp(const char *, const char *, size_t);
+#ifdef __cplusplus
+}
+#endif
 #endif

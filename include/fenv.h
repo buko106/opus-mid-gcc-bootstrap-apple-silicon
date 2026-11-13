@@ -1,5 +1,8 @@
 #ifndef _ASCC_FENV_H
 #define _ASCC_FENV_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 typedef struct { unsigned long long __fpsr; unsigned long long __fpcr; } fenv_t;
 typedef unsigned short fexcept_t;
 #define FE_INEXACT 0x0010
@@ -25,4 +28,7 @@ int fegetenv(fenv_t *);
 int feholdexcept(fenv_t *);
 int fesetenv(const fenv_t *);
 int feupdateenv(const fenv_t *);
+#ifdef __cplusplus
+}
+#endif
 #endif
