@@ -2649,6 +2649,15 @@ static void assemble_insn(const char *mn) {
                     label_expr(b), IS("adr") ? FX_ADR21 : FX_ADRP21);
     return;
   }
+  if ((IS("add") || IS("sub")) && a->kind == OP_REG && a->cls == RC_D) {
+    /* scalar add/sub dd, dn, dm */
+    if (!expect_ops(3) || ops[1].kind != OP_REG || ops[1].cls != RC_D ||
+        ops[2].kind != OP_REG || ops[2].cls != RC_D)
+      return (void)bad();
+    emit_insn((IS("add") ? 0x5ee08400u : 0x7ee08400u) | (ops[2].num << 16) |
+              (ops[1].num << 5) | a->num);
+    return;
+  }
   if (IS("add") && a->kind == OP_VREG) { do_v3same(0x0e208400u, 1); return; }
   if (IS("sub") && a->kind == OP_VREG) { do_v3same(0x2e208400u, 1); return; }
   if (IS("add") || IS("sub") || IS("adds") || IS("subs")) {
