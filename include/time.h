@@ -61,6 +61,8 @@ int clock_getres(clockid_t, struct timespec *);
 int clock_gettime(clockid_t, struct timespec *);
 int clock_settime(clockid_t, const struct timespec *);
 __uint64_t clock_gettime_nsec_np(clockid_t);
+#define TIME_UTC 1
+int timespec_get(struct timespec *, int);
 #ifdef __cplusplus
 }
 #endif
