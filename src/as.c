@@ -2407,6 +2407,26 @@ static void do_vshift_imm(uint32_t base, int right) {
 
 static void do_v3same(uint32_t base, int sized);
 
+/* SIMD two-register ops with a size field, vector (all integer
+   arrangements but 1d) or scalar d: neg/abs and compares against #0 */
+static void do_v2int(uint32_t base, int zero) {
+  Operand *d = &ops[0], *n = &ops[1];
+  int64_t v;
+  if (!expect_ops(zero ? 3 : 2))
+    return;
+  if (zero && (!is_const_imm(&ops[2], &v) || v != 0))
+    return (void)bad();
+  if (d->kind == OP_REG && d->cls == RC_D && n->kind == OP_REG && n->cls == RC_D) {
+    emit_insn(base | 0x50c00000u | (n->num << 5) | d->num);
+    return;
+  }
+  if (d->kind != OP_VREG || n->kind != OP_VREG || n->arr != d->arr ||
+      d->arr == AR_1D || d->arr == AR_1Q)
+    return (void)bad();
+  emit_insn(base | q_of(d->arr) | (size_of_arr(d->arr) << 22) | (n->num << 5) |
+            d->num);
+}
+
 /* [us]addlp / [us]adalp vd.T2, vn.T1: pairwise add long, T2 = T1 widened */
 static void do_addlp(uint32_t base) {
   Operand *d = &ops[0], *n = &ops[1];
@@ -2644,6 +2664,10 @@ static void assemble_insn(const char *mn) {
     z.cls = a->cls;
     z.num = 31;
     enc_addsub(IS("cmp"), 1, &z, a, b, opt(2));
+    return;
+  }
+  if ((IS("neg") || IS("abs")) && (a->kind == OP_VREG || (a->kind == OP_REG && a->cls == RC_D))) {
+    do_v2int(IS("neg") ? 0x2e20b800u : 0x0e20b800u, 0);
     return;
   }
   if (IS("neg") || IS("negs")) {
@@ -3221,6 +3245,14 @@ static void assemble_insn(const char *mn) {
   }
   if (IS("ld1")) { do_ld1st1(1); return; }
   if (IS("st1")) { do_ld1st1(0); return; }
+  if ((IS("cmeq") || IS("cmge") || IS("cmgt") || IS("cmle") || IS("cmlt")) &&
+      nops == 3 && ops[2].kind == OP_IMM) {
+    /* compare against zero */
+    do_v2int(IS("cmgt") ? 0x0e208800u : IS("cmeq") ? 0x0e209800u
+             : IS("cmlt") ? 0x0e20a800u : IS("cmge") ? 0x2e208800u
+                                          : 0x2e209800u, 1);
+    return;
+  }
   if (IS("cmeq") || IS("cmhi") || IS("cmhs") || IS("cmgt") || IS("cmge")) {
     uint32_t base = IS("cmeq") ? 0x2e208c00u : IS("cmhi") ? 0x2e203400u
                     : IS("cmhs") ? 0x2e203c00u : IS("cmgt") ? 0x0e203400u
