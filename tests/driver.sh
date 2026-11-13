@@ -118,6 +118,14 @@ check cov-build "$CC" -fascc-coverage -o covp cov.c "$ROOT/src/covrt.c"
 check cov-run sh -c "mkdir -p covd && ASCC_COVDIR=$W/covd ./covp"
 check cov-data sh -c "cat covd/cov-*.txt | grep -q 'cov.c 6 3'"
 
+# assembler -I and .include
+mkdir -p asinc
+printf '\t.long 7\n' > asinc/part.inc
+printf '\t.data\n\t.include "part.inc"\n' > asinc.s
+check as-I sh -c "'$CC' as -I asinc -o asinc.o asinc.s"
+check as-Ijoined sh -c "'$CC' as -Iasinc -o asinc2.o asinc.s && cmp asinc.o asinc2.o"
+check as-noI sh -c "! '$CC' as -o asinc3.o asinc.s"
+
 # #warning, #include_next
 printf '#warning watch out\nint w;\n' > warn.c
 check warning sh -c "'$CC' -c -o warn.o warn.c 2>&1 | grep -q 'warning: #warning watch out'"

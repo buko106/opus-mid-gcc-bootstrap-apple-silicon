@@ -177,6 +177,9 @@ static Map symtab;
 static int subsections_via_symbols;
 static int ltmp_counter;
 static const char *cur_file;
+static Vec inc_dirs;  /* -I directories for .include */
+static int inc_depth;
+static void assemble_source(char *src);
 static int cur_line;
 static int nerrors;
 static int build_platform = 1;
@@ -3749,6 +3752,64 @@ static void do_directive(const char *d) {
     build_minos = v;
     have_build_version = 1;
   }
+  else if (D(".include")) {
+    /* .include "file": searched in the current directory, then in the
+       -I directories (like Apple as), and assembled in place */
+    char name[1024], *path = NULL, *src, *save_lp;
+    const char *save_file;
+    int n = 0, save_line, i;
+    skip_ws();
+    if (*lp != '"') {
+      error("expected string in '.include' directive");
+      return;
+    }
+    lp++;
+    while (*lp && *lp != '"' && n < (int)sizeof(name) - 1)
+      name[n++] = *lp++;
+    name[n] = 0;
+    if (*lp == '"')
+      lp++;
+    if (file_exists(name))
+      path = name;
+    for (i = 0; !path && name[0] != '/' && i < inc_dirs.len; i++) {
+      char *p = format("%s/%s", (char *)inc_dirs.data[i], name);
+      if (file_exists(p))
+        path = p;
+    }
+    if (!path || !(src = read_file(path, NULL))) {
+      error("Could not find include file '%s'", name);
+      return;
+    }
+    if (inc_depth >= 32) {
+      error("'.include' nested too deeply");
+      return;
+    }
+    save_file = cur_file;
+    save_line = cur_line;
+    save_lp = lp;
+    cur_file = xstrdup(path);
+    inc_depth++;
+    assemble_source(src);
+    inc_depth--;
+    cur_file = save_file;
+    cur_line = save_line;
+    lp = save_lp;
+  }
+  else if (D(".arch")) {
+    /* .arch armv8-a[+ext...] (GCC 10 starts every file with it) only
+       selects instruction features; like LLVM it emits nothing */
+    skip_ws();
+    if (strncmp(lp, "armv8", 5) != 0 && strncmp(lp, "armv9", 5) != 0) {
+      error("unknown arch name");
+      return;
+    }
+    while (*lp)
+      lp++;
+  }
+  else if (D(".arch_extension") || D(".cpu")) {
+    while (*lp)
+      lp++;
+  }
   else if (D(".file") || D(".ident")) {
     /* .file "name" and .ident "string" are accepted and ignored. */
     if (D(".file") && isdigit((unsigned char)*lp)) {
@@ -4869,6 +4930,10 @@ int as_main(int argc, char **argv) {
                strcmp(a, "-v") == 0 || strcmp(a, "-V") == 0 ||
                strcmp(a, "-static") == 0 || strcmp(a, "-dynamic") == 0)
       continue;
+    else if (strcmp(a, "-I") == 0 && i + 1 < argc)
+      vec_push(&inc_dirs, argv[++i]);
+    else if (starts_with(a, "-I") && a[2])
+      vec_push(&inc_dirs, (void *)(a + 2));
     else if (strcmp(a, "--version") == 0) {
       printf("ascc as (arm64 Mach-O assembler)\n");
       return 0;

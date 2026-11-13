@@ -14,3 +14,40 @@ index 9411b05c5..1668fa7c0 100644
  
  /* Tell collect2 to run dsymutil for us as necessary.  */
  #define COLLECT_RUN_DSYMUTIL 1
+diff --git a/libgcc/config/aarch64/t-darwin b/libgcc/config/aarch64/t-darwin
+index f6ecda7b6..c18408f85 100644
+--- a/libgcc/config/aarch64/t-darwin
++++ b/libgcc/config/aarch64/t-darwin
+@@ -5,3 +5,10 @@ HOST_LIBGCC2_CFLAGS += -mmacosx-version-min=11.0
+ LIB2_SIDITI_CONV_FUNCS = yes
+ 
+ BUILD_LIBGCCS1 =
++
++# ascc bootstrap chain (--disable-shared, so LIB2ADDEH goes into libgcc.a):
++# unwind-dw2-fde-darwin.c finds FDEs through keymgr, which modern macOS no
++# longer has, so a static libgcc would shadow libSystem's working unwinder
++# (libunwind reads __eh_frame directly).  Keep only the C personality
++# routine; Makefile.in appends emutls.c.
++LIB2ADDEH = $(srcdir)/unwind-c.c
+diff --git a/libgcc/config/t-darwin b/libgcc/config/t-darwin
+index a3bb70c6a..f813e518a 100644
+--- a/libgcc/config/t-darwin
++++ b/libgcc/config/t-darwin
+@@ -20,9 +20,17 @@ emutls_s.o: HOST_LIBGCC2_CFLAGS += \
+ 
+ # Make the emutls crt as a convenience lib so that it can be linked
+ # optionally, use the shared version so that we can link with DSO.
++ifeq ($(enable_shared),yes)
+ libemutls_w.a: emutls_s.o
+ 	$(AR_CREATE_FOR_TARGET) $@ $<
+ 	$(RANLIB_FOR_TARGET) $@
++else
++# ascc bootstrap chain (--disable-shared): there are no _s objects, so use
++# the static emutls.o, which is weak (see above) like emutls_s.o.
++libemutls_w.a: emutls.o
++	$(AR_CREATE_FOR_TARGET) $@ $<
++	$(RANLIB_FOR_TARGET) $@
++endif
+ 
+ # Patch to __Unwind_Find_Enclosing_Function for Darwin10.
+ # This needs to be built for darwin10, regardless of the current platform
