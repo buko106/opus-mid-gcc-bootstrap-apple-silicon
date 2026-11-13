@@ -14,6 +14,24 @@ index 9411b05c5..1668fa7c0 100644
  
  /* Tell collect2 to run dsymutil for us as necessary.  */
  #define COLLECT_RUN_DSYMUTIL 1
+diff --git a/libgcc/config/aarch64/lse.S b/libgcc/config/aarch64/lse.S
+index 2c6f7db6e..4d43eb954 100644
+--- a/libgcc/config/aarch64/lse.S
++++ b/libgcc/config/aarch64/lse.S
+@@ -197,8 +197,12 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
+ 	.text
+ 	.balign	16
+ 	.private_extern	_\name
+-	.cfi_startproc
++/* ascc bootstrap chain: define the label before .cfi_startproc.  Mach-O
++   assemblers (LLVM's and ascc's) reject non-private labels inside a CFI
++   frame ("non-private labels cannot appear between .cfi_startproc /
++   .cfi_endproc pairs"); the frame still starts at the function.  */
+ _\name:
++	.cfi_startproc
+ 	BTI_C
+ .endm
+ 
 diff --git a/libgcc/config/aarch64/t-darwin b/libgcc/config/aarch64/t-darwin
 index f6ecda7b6..c18408f85 100644
 --- a/libgcc/config/aarch64/t-darwin

@@ -179,6 +179,20 @@ static int ltmp_counter;
 static const char *cur_file;
 static Vec inc_dirs;  /* -I directories for .include */
 static int inc_depth;
+
+/* .macro definitions */
+typedef struct {
+  char *name;
+  Vec params;   /* char * */
+  Vec defaults; /* char * or NULL */
+  Vec body;     /* char *, one source line each */
+} AsMacro;
+static Vec macros_v;        /* AsMacro * */
+static AsMacro *macro_def;  /* being defined (between .macro and .endm) */
+static int macro_count;     /* value of \@ */
+static int macro_depth;
+/* .cfi_startproc/.cfi_endproc pairs, turned into __compact_unwind */
+static int cfi_nprocs, cfi_open;
 static void assemble_source(char *src);
 static int cur_line;
 static int nerrors;
@@ -325,6 +339,10 @@ static int is_zerofill(Section *s) {
 
 static void define_label(Sym *s) {
   Frag *f;
+  if (cfi_open && (s->external || s->private_extern)) {
+    error("non-private labels cannot appear between .cfi_startproc / .cfi_endproc pairs");
+    return;
+  }
   if (s->defined || s->var) {
     error("invalid symbol redefinition: '%s'", s->name);
     return;
@@ -3819,6 +3837,89 @@ static void do_directive(const char *d) {
     while (*lp)
       lp++;
   }
+  else if (D(".inst")) {
+    /* .inst expr[, expr...]: raw instruction words */
+    for (;;) {
+      int64_t v;
+      skip_ws();
+      if (!eval_abs_now(parse_expr(), &v)) {
+        error("expected constant expression in '.inst' directive");
+        return;
+      }
+      emit_insn((uint32_t)v);
+      skip_ws();
+      if (*lp != ',')
+        break;
+      lp++;
+    }
+  }
+  else if (D(".cfi_startproc")) {
+    /* only frames without CFI instructions are supported: like LLVM,
+       each becomes a frameless __compact_unwind entry */
+    char name[48];
+    if (cfi_open) {
+      error("starting new .cfi frame before finishing the previous one");
+      return;
+    }
+    skip_ws();
+    if (strncmp(lp, "simple", 6) == 0)
+      lp += 6;
+    snprintf(name, sizeof(name), "Lascc$cfi$s%d", cfi_nprocs);
+    define_label(sym_lookup(name, (int)strlen(name)));
+    cfi_open = 1;
+  }
+  else if (D(".cfi_endproc")) {
+    char name[48];
+    if (!cfi_open) {
+      error("this directive must appear between .cfi_startproc and .cfi_endproc directives");
+      return;
+    }
+    snprintf(name, sizeof(name), "Lascc$cfi$e%d", cfi_nprocs);
+    define_label(sym_lookup(name, (int)strlen(name)));
+    cfi_open = 0;
+    cfi_nprocs++;
+  }
+  else if (D(".macro")) {
+    const char *s;
+    int n = read_ident(&s);
+    AsMacro *m;
+    skip_ws();
+    if (!n) {
+      error("expected identifier in '.macro' directive");
+      return;
+    }
+    m = xcalloc(1, sizeof(AsMacro));
+    m->name = xstrndup(s, n);
+    for (;;) {
+      skip_ws();
+      if (*lp == ',')
+        lp++, skip_ws();
+      if (!*lp)
+        break;
+      n = read_ident(&s);
+      if (!n) {
+        error("expected identifier in '.macro' directive");
+        return;
+      }
+      vec_push(&m->params, xstrndup(s, n));
+      skip_ws();
+      if (*lp == '=') {
+        const char *v;
+        lp++;
+        skip_ws();
+        v = lp;
+        while (*lp && *lp != ',' && *lp != ' ' && *lp != '\t')
+          lp++;
+        vec_push(&m->defaults, xstrndup(v, lp - v));
+      } else
+        vec_push(&m->defaults, NULL);
+    }
+    vec_push(&macros_v, m);
+    macro_def = m;
+  }
+  else if (D(".endm") || D(".endmacro")) {
+    error("unexpected '%s' in file, no current macro definition", d);
+  }
   else if (D(".loc") || strncmp(d, ".cfi_", 5) == 0) {
     error("unsupported directive '%s'", d);
   }
@@ -3831,6 +3932,113 @@ static void do_directive(const char *d) {
 }
 
 /* ---------------------------------------------------------- statements */
+
+static void parse_statement(char *line);
+
+static AsMacro *find_macro(const char *name) {
+  int i;
+  for (i = 0; i < macros_v.len; i++)
+    if (strcmp(((AsMacro *)macros_v.data[i])->name, name) == 0)
+      return macros_v.data[i];
+  return NULL;
+}
+
+/* collects a line of the macro being defined; .endm ends it */
+static void macro_collect(const char *line) {
+  const char *p = line;
+  while (*p == ' ' || *p == '\t')
+    p++;
+  if ((strncmp(p, ".endm", 5) == 0 && !is_ident_char((unsigned char)p[5])) ||
+      (strncmp(p, ".endmacro", 9) == 0 && !is_ident_char((unsigned char)p[9]))) {
+    macro_def = NULL;
+    return;
+  }
+  vec_push(&macro_def->body, xstrdup(line));
+}
+
+/* expands macro m with the arguments in the rest of the line: \param is
+   replaced by its argument, \() by nothing and \@ by the expansion count */
+static void expand_macro(AsMacro *m) {
+  Vec args;
+  int i, j, count = macro_count++;
+  memset(&args, 0, sizeof(args));
+  skip_ws();
+  while (*lp) {
+    const char *s = lp, *e;
+    while (*lp && *lp != ',')
+      lp++;
+    e = lp;
+    while (e > s && (e[-1] == ' ' || e[-1] == '\t'))
+      e--;
+    {
+      /* Darwin (LLVM): arguments are separated by commas only, and the
+         blanks inside an argument are dropped */
+      char *a = xstrndup(s, e - s), *r = a, *w = a;
+      for (; *r; r++)
+        if (*r != ' ' && *r != '\t')
+          *w++ = *r;
+      *w = 0;
+      vec_push(&args, a);
+    }
+    if (*lp == ',')
+      lp++;
+    skip_ws();
+  }
+  if (args.len > m->params.len) {
+    error("too many positional arguments");
+    return;
+  }
+  if (macro_depth >= 20) {
+    error("macros cannot be nested more than 20 levels deep");
+    return;
+  }
+  macro_depth++;
+  for (i = 0; i < m->body.len; i++) {
+    const char *p = m->body.data[i];
+    Buf b;
+    buf_init(&b);
+    while (*p) {
+      if (*p == '\\' && p[1] == '(' && p[2] == ')') {
+        p += 3;
+        continue;
+      }
+      if (*p == '\\' && p[1] == '@') {
+        char num[16];
+        snprintf(num, sizeof(num), "%d", count);
+        buf_adds(&b, num);
+        p += 2;
+        continue;
+      }
+      if (*p == '\\' && is_ident_start((unsigned char)p[1])) {
+        const char *q = p + 1;
+        int len, found = 0;
+        while (*q && (isalnum((unsigned char)*q) || *q == '_' || *q == '$'))
+          q++;
+        len = (int)(q - p - 1);
+        for (j = 0; j < m->params.len; j++) {
+          const char *pn = m->params.data[j];
+          if ((int)strlen(pn) == len && strncmp(pn, p + 1, len) == 0) {
+            const char *v = j < args.len && *(char *)args.data[j]
+                                ? args.data[j] : m->defaults.data[j];
+            if (v)
+              buf_adds(&b, v);
+            found = 1;
+            break;
+          }
+        }
+        if (found) {
+          p = q;
+          continue;
+        }
+      }
+      buf_add(&b, p, 1);
+      p++;
+    }
+    buf_add(&b, "", 1);
+    parse_statement(b.data);
+  }
+  macro_depth--;
+}
 
 static void parse_statement(char *line) {
   const char *start;
@@ -3893,6 +4101,13 @@ static void parse_statement(char *line) {
     }
     memcpy(name, start, n);
     name[n] = 0;
+    {
+      AsMacro *m = find_macro(name);
+      if (m) {
+        expand_macro(m);
+        return;
+      }
+    }
     if (name[0] == '.' && !(name[1] == 0)) {
       do_directive(name);
       if (!at_end())
@@ -3983,6 +4198,10 @@ static void assemble_source(char *src) {
       *out++ = *q;
     }
     *out = 0;
+    if (macro_def) {
+      macro_collect(line);
+      continue;
+    }
     parse_statement(line);
   }
 }
@@ -4953,6 +5172,24 @@ int as_main(int argc, char **argv) {
   }
   switch_section(get_section("__TEXT", "__text", S_ATTR_PURE_INSTRUCTIONS));
   assemble_source(src);
+  if (macro_def)
+    error("no matching '.endmacro' in definition");
+  if (cfi_open)
+    error("unfinished .cfi frame (missing .cfi_endproc)");
+  if (cfi_nprocs && !nerrors) {
+    /* LLVM creates __LD,__compact_unwind last, one 32-byte entry per
+       frame: start, length, encoding (frameless, no stack),
+       personality, LSDA */
+    int k;
+    switch_section(get_section("__LD", "__compact_unwind", S_ATTR_DEBUG));
+    parse_statement(xstrdup("\t.p2align 3"));
+    for (k = 0; k < cfi_nprocs; k++) {
+      parse_statement(format("\t.quad Lascc$cfi$s%d", k));
+      parse_statement(format("\t.long Lascc$cfi$e%d - Lascc$cfi$s%d", k, k));
+      parse_statement(xstrdup("\t.long 0x02000000"));
+      parse_statement(xstrdup("\t.quad 0, 0"));
+    }
+  }
   if (nerrors)
     return 1;
   layout_all();
