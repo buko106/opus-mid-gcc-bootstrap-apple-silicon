@@ -1861,6 +1861,8 @@ int ld_main(int argc, char **argv) {
   }
   if (errors)
     return 1;
+  /* the entry point is an initial undefined symbol (pulls it from archives) */
+  get_global(entry_name)->referenced = 1;
   resolve_archives();
   if (errors)
     return 1;

@@ -127,7 +127,7 @@ index 5d0072f9d..f42be717c 100644
 +
  #endif /* GCC_AARCH64_PROTOS_H */
 diff --git a/gcc/config/aarch64/aarch64.c b/gcc/config/aarch64/aarch64.c
-index ce572f912..1d82918b9 100644
+index ce572f912..e75808eb2 100644
 --- a/gcc/config/aarch64/aarch64.c
 +++ b/gcc/config/aarch64/aarch64.c
 @@ -45,6 +45,8 @@
@@ -408,7 +408,20 @@ index ce572f912..1d82918b9 100644
    if (!TARGET_FLOAT)
      {
        for (i = V0_REGNUM; i <= V31_REGNUM; i++)
-@@ -6699,7 +6742,7 @@ aarch64_expand_vector_init (rtx target, rtx vals)
+@@ -5990,8 +6033,10 @@ static const char *
+ aarch64_mangle_type (const_tree type)
+ {
+   /* The AArch64 ABI documents say that "__va_list" has to be
+-     managled as if it is in the "std" namespace.  */
+-  if (lang_hooks.types_compatible_p (CONST_CAST_TREE (type), va_list_type))
++     managled as if it is in the "std" namespace.  Darwin uses a plain
++     char * va_list (va_list_type is not set) with the usual mangling.  */
++  if (va_list_type
++      && lang_hooks.types_compatible_p (CONST_CAST_TREE (type), va_list_type))
+     return "St9__va_list";
+ 
+   /* Check the mode of the vector type, and the name of the vector
+@@ -6699,7 +6744,7 @@ aarch64_expand_vector_init (rtx target, rtx vals)
  
    /* Construct the vector in memory one field at a time
       and load the whole vector.  */
@@ -417,7 +430,7 @@ index ce572f912..1d82918b9 100644
    for (i = 0; i < n_elts; i++)
      emit_move_insn (adjust_address_nv (mem, inner_mode,
  				    i * GET_MODE_SIZE (inner_mode)),
-@@ -7051,7 +7094,9 @@ aarch64_split_atomic_op (enum rtx_code code, rtx old_out, rtx new_out, rtx mem,
+@@ -7051,7 +7096,9 @@ aarch64_split_atomic_op (enum rtx_code code, rtx old_out, rtx new_out, rtx mem,
  static void
  aarch64_start_file (void)
  {
@@ -428,7 +441,7 @@ index ce572f912..1d82918b9 100644
      asm_fprintf (asm_out_file, "\t.arch %s\n", selected_arch->name);
    else if (selected_cpu)
      asm_fprintf (asm_out_file, "\t.cpu %s\n", selected_cpu->name);
-@@ -7202,6 +7247,7 @@ aarch64_output_simd_mov_immediate (rtx *const_vector,
+@@ -7202,6 +7249,7 @@ aarch64_output_simd_mov_immediate (rtx *const_vector,
  
  /* Split operands into moves from op[1] + op[2] into op[0].  */
  
@@ -436,7 +449,7 @@ index ce572f912..1d82918b9 100644
  void
  aarch64_split_combinev16qi (rtx operands[3])
  {
-@@ -7251,7 +7297,9 @@ aarch64_split_combinev16qi (rtx operands[3])
+@@ -7251,7 +7299,9 @@ aarch64_split_combinev16qi (rtx operands[3])
  	emit_move_insn (destlo, operands[1]);
      }
  }
@@ -446,7 +459,7 @@ index ce572f912..1d82918b9 100644
  /* vec_perm support.  */
  
  #define MAX_VECT_LEN 16
-@@ -7749,6 +7797,62 @@ aarch64_vectorize_vec_perm_const_ok (enum machine_mode vmode,
+@@ -7749,6 +7799,62 @@ aarch64_vectorize_vec_perm_const_ok (enum machine_mode vmode,
    return ret;
  }
  
@@ -509,7 +522,7 @@ index ce572f912..1d82918b9 100644
  #undef TARGET_ADDRESS_COST
  #define TARGET_ADDRESS_COST aarch64_address_cost
  
-@@ -7966,6 +8070,68 @@ aarch64_vectorize_vec_perm_const_ok (enum machine_mode vmode,
+@@ -7966,6 +8072,68 @@ aarch64_vectorize_vec_perm_const_ok (enum machine_mode vmode,
  #undef TARGET_FIXED_CONDITION_CODE_REGS
  #define TARGET_FIXED_CONDITION_CODE_REGS aarch64_fixed_condition_code_regs
  
@@ -1592,10 +1605,10 @@ index 939dcc873..8637840f5 100644
      fatal_error ("atexit failed");
  
 diff --git a/gcc/recog.h b/gcc/recog.h
-index 71dfe2a68..ee13988ef 100644
+index 71dfe2a68..60fd6be38 100644
 --- a/gcc/recog.h
 +++ b/gcc/recog.h
-@@ -257,7 +257,16 @@ extern struct operand_alternative recog_op_alt[MAX_RECOG_OPERANDS][MAX_RECOG_ALT
+@@ -257,7 +257,18 @@ extern struct operand_alternative recog_op_alt[MAX_RECOG_OPERANDS][MAX_RECOG_ALT
  
  typedef int (*insn_operand_predicate_fn) (rtx, enum machine_mode);
  typedef const char * (*insn_output_fn) (rtx *, rtx);
@@ -1603,7 +1616,9 @@ index 71dfe2a68..ee13988ef 100644
 +   not be called through a variadic function type: on Darwin arm64 the
 +   anonymous arguments of a variadic call are passed on the stack, while the
 +   generators read them from registers.  An unprototyped function type uses
-+   the normal (register) convention for any number of operands.  */
++   the normal (register) convention for any number of operands.  (C++ has
++   no unprototyped function types; on Darwin arm64 GCC 4.7 must therefore
++   be built as C: configure with --disable-build-poststage1-with-cxx.)  */
 +#ifdef __cplusplus
  typedef rtx (*insn_gen_fn) (rtx, ...);
 +#else

@@ -43,5 +43,38 @@ selfhost: $(BUILD)/stage3/ascc
 	cmp $(BUILD)/stage2/ascc $(BUILD)/stage3/ascc
 	@echo "selfhost: stage2 and stage3 are identical"
 
+# ------------------------------------------------------------------ tests
+COVDIR   := $(BUILD)/cov
+TESTS_C  := $(wildcard tests/c/*.c)
+
+.PHONY: unittest asmcheck diagcheck coverage
+
+test: selfhost unittest asmcheck diagcheck coverage
+	@echo "make test: all checks passed"
+
+unittest: $(BUILD)/stage3/ascc
+	@mkdir -p $(BUILD)/t
+	@for t in $(TESTS_C); do \
+	  n=$$(basename $$t .c); \
+	  $(BUILD)/stage3/ascc -o $(BUILD)/t/$$n $$t || exit 1; \
+	  $(BUILD)/t/$$n > $(BUILD)/t/$$n.out || { cat $(BUILD)/t/$$n.out; exit 1; }; \
+	  echo "unittest $$n: $$(tail -1 $(BUILD)/t/$$n.out)"; \
+	done
+
+asmcheck: $(BUILD)/stage3/ascc
+	sh tests/asm_compare.sh $(BUILD)/stage3/ascc tests/asm/*.s
+
+diagcheck: $(BUILD)/stage3/ascc
+	sh tests/diag.sh $(BUILD)/stage3/ascc
+
+$(COVDIR)/ascc: $(BUILD)/stage3/ascc src/covrt.c
+	@mkdir -p $(COVDIR)
+	$(BUILD)/stage3/ascc -fascc-coverage $(DEFS) -o $@ $(SRCS) src/covrt.c
+	cd $(COVDIR) && ln -sf ascc as && ln -sf ascc ld && ln -sf ascc ar && ln -sf ascc ranlib && ln -sf ascc nm
+
+coverage: $(COVDIR)/ascc
+	sh tests/coverage-run.sh $(COVDIR) $(BUILD)/stage3/ascc
+	sh tests/coverage.sh $(COVDIR)/data 95
+
 clean:
 	rm -rf $(BUILD)

@@ -337,5 +337,7 @@ int align_to(int n, int align);
 extern char *base_file;
 extern bool opt_fcommon;
 extern bool opt_g;
+extern bool opt_coverage;
+extern void (*ascc_cov_hook)(void);
 
 #endif

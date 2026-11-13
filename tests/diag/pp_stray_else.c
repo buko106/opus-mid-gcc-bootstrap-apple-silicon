@@ -1,0 +1,2 @@
+#else
+// EXPECT: stray #else

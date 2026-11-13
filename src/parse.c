@@ -345,6 +345,8 @@ static Token *attribute_list(Token *tok, VarAttr *attr, Type *ty) {
     tok = skip(tok, "(");
     tok = skip(tok, "(");
     while (!equal(tok, ")")) {
+      if (tok->kind == TK_EOF)
+        error_tok(tok, "unbalanced parentheses");
       if (equal(tok, ",")) {
         tok = tok->next;
         continue;
@@ -612,6 +614,8 @@ static Type *func_params(Token **rest, Token *tok, Type *ty) {
     *rest = tok->next;
     return fty;
   }
+  /* prototype scope: earlier parameters may appear in array sizes */
+  enter_scope();
   while (!equal(tok, ")")) {
     Type *ty2;
     Token *name;
@@ -625,7 +629,12 @@ static Type *func_params(Token **rest, Token *tok, Type *ty) {
       break;
     }
     memset(&pattr, 0, sizeof(pattr));
-    ty2 = declspec(&tok, tok, &pattr);
+    {
+      Token *spec = tok;
+      ty2 = declspec(&tok, tok, &pattr);
+      if (pattr.is_static || pattr.is_extern || pattr.is_typedef || pattr.is_tls)
+        error_tok(spec, "storage class specifier is not allowed in this context");
+    }
     ty2 = declarator(&tok, tok, ty2);
     tok = attribute_list(tok, NULL, NULL);
     name = ty2->name;
@@ -640,7 +649,15 @@ static Type *func_params(Token **rest, Token *tok, Type *ty) {
       ty2->name = name;
     }
     cur = cur->next = copy_type(ty2);
+    if (name && name->kind == TK_IDENT) {
+      Obj *dummy = xcalloc(1, sizeof(Obj));
+      dummy->name = get_ident(name);
+      dummy->ty = ty2;
+      dummy->is_local = true;
+      push_scope(dummy->name)->var = dummy;
+    }
   }
+  leave_scope();
   if (cur == &head)
     is_variadic = true;
   ty = func_type(ty);
@@ -1175,6 +1192,8 @@ static void struct_initializer1(Token **rest, Token *tok, Initializer *init) {
       mem = mem->next;
       continue;
     }
+    if (equal(tok, "["))
+      error_tok(tok, "array index in non-array initializer");
     /* skip unnamed bitfields */
     while (mem && mem->is_bitfield && !mem->name)
       mem = mem->next;
@@ -1242,6 +1261,9 @@ static void initializer2(Token **rest, Token *tok, Initializer *init) {
     *rest = skip(tok, "}");
     return;
   }
+  if (init->ty->kind == TY_ARRAY && tok->kind == TK_STR &&
+      is_integer(init->ty->base))
+    error_tok(tok, "invalid string initializer");
   if (init->ty->kind == TY_ARRAY) {
     if (equal(tok, "{"))
       array_initializer1(rest, tok, init);
@@ -1280,6 +1302,8 @@ static void initializer2(Token **rest, Token *tok, Initializer *init) {
     return;
   }
   if (equal(tok, "{")) {
+    if (equal(tok->next, "."))
+      error_tok(tok->next, "field name not in struct or union initializer");
     initializer2(&tok, tok->next, init);
     consume(&tok, tok, ",");
     *rest = skip(tok, "}");
@@ -1469,6 +1493,8 @@ static Relocation *write_gvar_data(Relocation *cur, Initializer *init, Type *ty,
     char **label = NULL;
     uint64_t val = (uint64_t)eval2(init->expr, &label);
     if (!label) {
+      if (ty->kind == TY_BOOL)
+        val = val != 0;
       write_buf(buf + offset, val, ty->size);
       return cur;
     }
@@ -1834,7 +1860,23 @@ static int64_t eval2(Node *node, char ***label) {
     return (int64_t)eval_double(node);
   switch (node->kind) {
   case ND_ADD: return eval2(node->lhs, label) + eval(node->rhs);
-  case ND_SUB: return eval2(node->lhs, label) - eval(node->rhs);
+  case ND_SUB: {
+    /* label - label of the same object folds to a constant */
+    char **l1 = NULL, **l2 = NULL;
+    int64_t a = eval2(node->lhs, &l1);
+    int64_t b = eval2(node->rhs, &l2);
+    if (l2) {
+      if (!l1 || *l1 != *l2)
+        error_tok(node->tok, "not a compile-time constant");
+      return a - b;
+    }
+    if (l1) {
+      if (!label)
+        error_tok(node->tok, "not a compile-time constant");
+      *label = l1;
+    }
+    return a - b;
+  }
   case ND_MUL: return eval(node->lhs) * eval(node->rhs);
   case ND_DIV: {
     int64_t r = eval(node->rhs);
@@ -3159,6 +3201,15 @@ static Token *function(Token *tok, Type *basety, VarAttr *attr) {
     error_tok(ty->name_pos, "function name omitted");
   name = get_ident(ty->name);
   fn = find_func(name);
+  if (!fn) {
+    Scope *sc0 = scope;
+    VarScope *vs;
+    while (sc0->next)
+      sc0 = sc0->next;
+    vs = map_get(&sc0->vars, name);
+    if (vs && (vs->type_def || vs->enum_ty || (vs->var && !vs->var->is_function)))
+      error_tok(ty->name, "redeclared as a different kind of symbol");
+  }
   if (fn) {
     if (!fn->is_function)
       error_tok(tok, "redeclared as a different kind of symbol");
@@ -3269,6 +3320,8 @@ static Token *global_variable(Token *tok, Type *basety, VarAttr *attr) {
     if (!ty->name)
       error_tok(ty->name_pos, "variable name omitted");
     name = get_ident(ty->name);
+    if (ty->kind == TY_VOID)
+      error_tok(ty->name, "variable declared void");
     if (ty->kind == TY_FUNC) {
       /* function declaration in a list */
       Obj *fn = find_func(name);

@@ -17,6 +17,9 @@
 char *base_file;
 bool opt_fcommon = true;
 bool opt_g;
+bool opt_coverage;
+/* set by the coverage runtime (src/covrt.c) in instrumented builds */
+void (*ascc_cov_hook)(void);
 Vec system_paths_after;
 
 static bool opt_E, opt_S, opt_c, opt_v, opt_M, opt_MM, opt_MD, opt_MMD, opt_MP;
@@ -86,6 +89,8 @@ static int run_child(int (*fn)(int, char **), int argc, char **argv) {
     int r = fn(argc, argv);
     fflush(stdout);
     fflush(stderr);
+    if (ascc_cov_hook)
+      ascc_cov_hook();
     _exit(r);
   }
   while (waitpid(pid, &status, 0) == -1)
@@ -467,6 +472,7 @@ int cc_main(int argc, char **argv) {
       continue;
     }
     if (!strcmp(a, "-fcommon")) { opt_fcommon = true; continue; }
+    if (!strcmp(a, "-fascc-coverage")) { opt_coverage = true; continue; }
     if (!strcmp(a, "-fno-common")) { opt_fcommon = false; continue; }
     if (!strcmp(a, "-isysroot")) { sysroot = argv[++i]; continue; }
     if (!strncmp(a, "-mmacosx-version-min=", 21) ||

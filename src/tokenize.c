@@ -322,10 +322,14 @@ static Token *read_wide_string_literal(char *start, char *quote, Type *ty) {
   return tok;
 }
 
+/* A plain character constant (narrow == true) is evaluated with char
+   semantics (signed char, multi-character constants packed big-endian) but
+   has type int. */
 static Token *read_char_literal(char *start, char *quote, Type *ty) {
   char *p = quote + 1;
   int64_t val = 0;
   int n = 0;
+  bool narrow = quote == start;
   Token *tok;
   if (*p == '\0')
     error_at(start, "unclosed char literal");
@@ -336,17 +340,17 @@ static Token *read_char_literal(char *start, char *quote, Type *ty) {
     if (*p == '\\') {
       c = read_escaped_char(&p, p + 1);
       c &= 0x3fffffff;
-    } else if (ty->size > 1)
+    } else if (!narrow)
       c = (int)decode_utf8(&p, p);
     else
       c = (unsigned char)*p++;
-    if (ty->size == 1)
+    if (narrow)
       val = (val << 8) | (c & 0xff);
     else
       val = c;
     n++;
   }
-  if (ty->size == 1) {
+  if (narrow) {
     if (n == 1)
       val = (signed char)val; /* char is signed */
     else

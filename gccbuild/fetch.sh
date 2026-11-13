@@ -22,6 +22,9 @@ for f in gcc/gcc-4.7.4/gcc-4.7.4.tar.bz2 gcc/gcc-10.5.0/gcc-10.5.0.tar.xz \
   fetch $GNU/$f.sig $b.sig
   LC_ALL=C gpg --batch --verify $b.sig $b
 done
+# GCC 10.5 arm64-darwin port: Iain Sandoe's gcc-10-branch, branch
+# gcc-10-5Dr0-pre-0, pinned to commits (base = the GCC 10.5.0 release).
+fetch https://github.com/iains/gcc-10-branch/compare/d04fe5541c53cb16d1ca5c80da044b4c7633dbc6...c749ebf15fdf574e1f2eb352887d33854dd161fa.diff gcc-10.5-darwin-arm64.diff
 # GCC 4.8.0 aarch64 backend, pinned to the releases/gcc-4.8.0 commit.
 # commit of tag releases/gcc-4.8.0 (tag object 15714406)
 C=372a443092ee1656c6d866a16e6da6df32b1f71d

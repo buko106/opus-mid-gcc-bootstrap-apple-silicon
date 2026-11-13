@@ -23,4 +23,5 @@ AS_FOR_TARGET="$TOOLS/as" LD_FOR_TARGET="$TOOLS/ld" \
   --disable-libmudflap --disable-libssp --disable-libgomp --disable-libquadmath \
   --disable-libitm --disable-libstdcxx-pch --without-ppl --without-cloog \
   --enable-threads=posix \
+  --disable-build-poststage1-with-cxx \
   "$@"

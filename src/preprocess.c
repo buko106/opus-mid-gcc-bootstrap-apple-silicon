@@ -217,27 +217,10 @@ static Token *new_num_token(int64_t val, Token *tmpl) {
 static Token *read_const_expr(Token **rest, Token *tok) {
   Token head;
   Token *cur = &head;
-  tok = copy_line(rest, tok);
-  head.next = NULL;
-  while (tok->kind != TK_EOF) {
-    if (equal(tok, "defined")) {
-      Token *start = tok;
-      bool has_paren = consume(&tok, tok->next, "(");
-      Macro *m;
-      if (tok->kind != TK_IDENT && tok->kind != TK_KEYWORD)
-        error_tok(start, "macro name must be an identifier");
-      m = find_macro(tok);
-      tok = tok->next;
-      if (has_paren)
-        tok = skip(tok, ")");
-      cur = cur->next = new_num_token(m ? 1 : 0, start);
-      continue;
-    }
-    cur = cur->next = tok;
-    tok = tok->next;
-  }
-  cur->next = tok;
-  return head.next;
+  /* `defined` is evaluated by expand_if_expr */
+  (void)head;
+  (void)cur;
+  return copy_line(rest, tok);
 }
 
 /* Macro-expands an #if expression.  A `defined` operator produced by a
@@ -349,6 +332,16 @@ static MacroParam *read_macro_params(Token **rest, Token *tok,
   return head.next;
 }
 
+/* records the presumed location (after #line) in a macro body */
+static Token *stamp_location(Token *body) {
+  Token *t;
+  for (t = body; t && t->kind != TK_EOF; t = t->next) {
+    t->line_delta = t->file->line_delta;
+    t->filename = t->file->display_name;
+  }
+  return body;
+}
+
 static void read_macro_definition(Token **rest, Token *tok) {
   char *name;
   if (tok->kind != TK_IDENT && tok->kind != TK_KEYWORD)
@@ -358,11 +351,11 @@ static void read_macro_definition(Token **rest, Token *tok) {
   if (!tok->has_space && equal(tok, "(")) {
     char *va_args_name = NULL;
     MacroParam *params = read_macro_params(&tok, tok->next, &va_args_name);
-    Macro *m = add_macro(name, false, copy_line(rest, tok));
+    Macro *m = add_macro(name, false, stamp_location(copy_line(rest, tok)));
     m->params = params;
     m->va_args_name = va_args_name;
   } else
-    add_macro(name, true, copy_line(rest, tok));
+    add_macro(name, true, stamp_location(copy_line(rest, tok)));
 }
 
 static MacroArg *read_macro_arg_one(Token **rest, Token *tok, bool read_rest) {
@@ -420,7 +413,7 @@ static MacroArg *read_macro_args(Token **rest, Token *tok, MacroParam *params,
     arg->name = va_args_name;
     arg->is_va_args = true;
     cur = cur->next = arg;
-  } else if (pp) {
+  } else if (!equal(tok, ")")) {
     error_tok(start, "too many arguments");
   }
   skip(tok, ")");
@@ -550,7 +543,7 @@ static Token *subst(Token *tok, MacroArg *args) {
       MacroArg *a2 = read_macro_arg_one(&tok, tok->next->next, true);
       if (has_varargs(args)) {
         Token *t;
-        for (t = a2->tok; t->kind != TK_EOF; t = t->next)
+        for (t = subst(a2->tok, args); t->kind != TK_EOF; t = t->next)
           cur = cur->next = t;
       }
       tok = skip(tok, ")");
@@ -773,8 +766,11 @@ static Token *preprocess2(Token *tok) {
     if (expand_macro(&tok, tok))
       continue;
     if (!is_hash(tok)) {
-      tok->line_delta = tok->file->line_delta;
-      tok->filename = tok->file->display_name;
+      /* tokens from macro bodies keep the location of the definition */
+      if (!tok->origin) {
+        tok->line_delta = tok->file->line_delta;
+        tok->filename = tok->file->display_name;
+      }
       cur = cur->next = tok;
       tok = tok->next;
       continue;

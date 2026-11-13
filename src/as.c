@@ -3571,8 +3571,11 @@ static void do_directive(const char *d) {
   else if (D(".mod_term_func")) dir_named_section("__DATA", "__mod_term_func", S_MOD_TERM_FUNC_POINTERS, 4);
   else if (D(".bss")) dir_named_section("__DATA", "__bss", S_ZEROFILL, 0);
   else if (D(".non_lazy_symbol_pointer")) dir_named_section("__DATA", "__nl_symbol_ptr", S_NON_LAZY_SYMBOL_POINTERS, 4);
+  else if (D(".lazy_symbol_pointer")) dir_named_section("__DATA", "__la_symbol_ptr", S_LAZY_SYMBOL_POINTERS, 4);
   else if (D(".tdata")) dir_named_section("__DATA", "__thread_data", S_THREAD_LOCAL_REGULAR, 0);
   else if (D(".tlv")) dir_named_section("__DATA", "__thread_vars", S_THREAD_LOCAL_VARIABLES, 0);
+  else if (D(".constructor")) dir_named_section("__TEXT", "__constructor", 0, 0);
+  else if (D(".destructor")) dir_named_section("__TEXT", "__destructor", 0, 0);
   else if (D(".section")) dir_section();
   else if (D(".previous")) {
     if (prev_sec) {

@@ -1,0 +1,2 @@
+#endif
+// EXPECT: stray #endif

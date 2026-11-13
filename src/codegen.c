@@ -1324,7 +1324,99 @@ static void gen_cond_branch_false(Node *cond, const char *label) {
   println("\tb.eq\t%s", label);
 }
 
+/* ------------------------------------------------------------ coverage */
+
+/* -fascc-coverage: one 64-bit counter per (file, line) with a statement. */
+static Map cov_map;          /* "file\0line" -> index+1 */
+static Vec cov_files;        /* file name per counter */
+static Vec cov_lines;        /* line number per counter */
+
+static int cov_index(Token *tok) {
+  char key[512];
+  const char *file = tok->file ? tok->file->name : "?";
+  long idx;
+  int n = snprintf(key, sizeof(key), "%s:%d", file, tok->line_no);
+  idx = (long)map_get2(&cov_map, key, n);
+  if (idx)
+    return (int)idx - 1;
+  vec_push(&cov_files, (void *)file);
+  vec_push(&cov_lines, (void *)(long)tok->line_no);
+  map_put2(&cov_map, key, n, (void *)(long)cov_files.len);
+  return cov_files.len - 1;
+}
+
+static void cov_count(Node *node) {
+  int k;
+  switch (node->kind) {
+  case ND_EXPR_STMT: case ND_RETURN: case ND_IF: case ND_FOR: case ND_DO:
+  case ND_SWITCH: case ND_GOTO: case ND_GOTO_EXPR: case ND_ASM:
+    break;
+  default:
+    return;
+  }
+  if (!node->tok || !node->tok->file)
+    return;
+  k = cov_index(node->tok);
+  println("	adrp	x9, l_ascc_cov.counters@PAGE");
+  println("	add	x9, x9, l_ascc_cov.counters@PAGEOFF");
+  add_imm("x9", "x9", 8LL * k);
+  println("	ldr	x10, [x9]");
+  println("	add	x10, x10, #1");
+  println("	str	x10, [x9]");
+}
+
+static void emit_coverage_tables(void) {
+  int i, n = cov_files.len;
+  if (!n)
+    return;
+  println("	.zerofill	__DATA,__bss,l_ascc_cov.counters,%d,3", 8 * n);
+  println("	.section	__TEXT,__const");
+  println("	.p2align	2");
+  println("l_ascc_cov.lines:");
+  for (i = 0; i < n; i++)
+    println("	.long	%ld", (long)cov_lines.data[i]);
+  println("	.section	__TEXT,__cstring,cstring_literals");
+  for (i = 0; i < n; i++)
+    if (i == 0 || cov_files.data[i] != cov_files.data[i - 1])
+      println("l_ascc_cov.file.%d:\n\t.asciz\t\"%s\"", i, (char *)cov_files.data[i]);
+  println("	.section	__DATA,__const");
+  println("	.p2align	3");
+  println("l_ascc_cov.files:");
+  {
+    int last = 0;
+    for (i = 0; i < n; i++) {
+      if (i == 0 || cov_files.data[i] != cov_files.data[i - 1])
+        last = i;
+      println("	.quad	l_ascc_cov.file.%d", last);
+    }
+  }
+  /* struct { void *next; long n; long *counters; int *lines; char **files; } */
+  println("	.section	__DATA,__data");
+  println("	.p2align	3");
+  println("l_ascc_cov.rec:");
+  println("	.quad	0");
+  println("	.quad	%d", n);
+  println("	.quad	l_ascc_cov.counters");
+  println("	.quad	l_ascc_cov.lines");
+  println("	.quad	l_ascc_cov.files");
+  println("	.text");
+  println("	.p2align	2");
+  println("l_ascc_cov.init:");
+  println("	stp	x29, x30, [sp, #-16]!");
+  println("	mov	x29, sp");
+  println("	adrp	x0, l_ascc_cov.rec@PAGE");
+  println("	add	x0, x0, l_ascc_cov.rec@PAGEOFF");
+  println("	bl	_ascc_cov_register");
+  println("	ldp	x29, x30, [sp], #16");
+  println("	ret");
+  println("	.section	__DATA,__mod_init_func,mod_init_funcs");
+  println("	.p2align	3");
+  println("	.quad	l_ascc_cov.init");
+}
+
 static void gen_stmt(Node *node) {
+  if (opt_coverage)
+    cov_count(node);
   switch (node->kind) {
   case ND_IF: {
     int c = count();
@@ -1797,5 +1889,7 @@ void codegen(Obj *prog, FILE *out) {
       continue;
     emit_data(var);
   }
+  if (opt_coverage)
+    emit_coverage_tables();
   println("\t.subsections_via_symbols");
 }
