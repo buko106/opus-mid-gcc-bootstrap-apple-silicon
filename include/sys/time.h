@@ -10,12 +10,12 @@ struct itimerval { struct timeval it_interval; struct timeval it_value; };
 #define ITIMER_PROF 2
 #define timerclear(tvp) ((tvp)->tv_sec = (tvp)->tv_usec = 0)
 #define timerisset(tvp) ((tvp)->tv_sec || (tvp)->tv_usec)
-int gettimeofday(struct timeval *restrict, void *restrict);
+int gettimeofday(struct timeval *__restrict, void *__restrict);
 int settimeofday(const struct timeval *, const struct timezone *);
 int getitimer(int, struct itimerval *);
-int setitimer(int, const struct itimerval *restrict, struct itimerval *restrict);
+int setitimer(int, const struct itimerval *__restrict, struct itimerval *__restrict);
 int utimes(const char *, const struct timeval[2]);
 int futimes(int, const struct timeval[2]);
 int lutimes(const char *, const struct timeval[2]);
-int select(int, fd_set *restrict, fd_set *restrict, fd_set *restrict, struct timeval *restrict);
+int select(int, fd_set *__restrict, fd_set *__restrict, fd_set *__restrict, struct timeval *__restrict);
 #endif

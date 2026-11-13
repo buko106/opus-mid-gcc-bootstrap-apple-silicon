@@ -103,7 +103,7 @@ int lchown(const char *, uid_t, gid_t);
 int nice(int);
 ssize_t pread(int, void *, size_t, off_t);
 ssize_t pwrite(int, const void *, size_t, off_t);
-ssize_t readlink(const char *restrict, char *restrict, size_t);
+ssize_t readlink(const char *__restrict, char *__restrict, size_t);
 int setegid(gid_t);
 int seteuid(uid_t);
 int setregid(gid_t, gid_t);

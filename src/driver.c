@@ -315,6 +315,10 @@ static const char *lang_of(const char *path, const char *forced) {
     return forced;
   if (ends_with(path, ".c") || ends_with(path, ".h") || ends_with(path, ".i"))
     return "c";
+  if (ends_with(path, ".cc") || ends_with(path, ".cpp") ||
+      ends_with(path, ".cxx") || ends_with(path, ".C") ||
+      ends_with(path, ".c++") || ends_with(path, ".hpp"))
+    return "c++";
   if (ends_with(path, ".s"))
     return "assembler";
   if (ends_with(path, ".S"))
@@ -547,6 +551,7 @@ int cc_main(int argc, char **argv) {
       continue;
     }
     if (opt_E || opt_M || opt_MM) {
+      /* C++ sources can only be preprocessed (configure probes this). */
       if (!strcmp(lang, "assembler"))
         continue;
       status |= compile_to_asm(input, opt_o ? opt_o : "-", true);
@@ -585,7 +590,7 @@ int cc_main(int argc, char **argv) {
     }
     if (strcmp(lang, "c") != 0 && strcmp(lang, "c-header") != 0 &&
         strcmp(lang, "cpp-output") != 0)
-      error("unsupported language: %s", lang);
+      error("unsupported language: %s (only C can be compiled)", lang);
     if (opt_S) {
       status |= compile_to_asm(input, opt_o ? opt_o : replace_extn(input, ".s"), false);
       continue;

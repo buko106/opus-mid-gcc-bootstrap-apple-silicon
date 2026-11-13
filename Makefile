@@ -23,17 +23,17 @@ all: stage3
 $(BUILD)/stage1/ascc: $(SRCS) $(HDRS) $(wildcard include/*.h include/*/*.h)
 	@mkdir -p $(dir $@)
 	$(SEED_CC) $(SEED_CFLAGS) $(DEFS) -o $@ $(SRCS)
-	cd $(dir $@) && ln -sf ascc as && ln -sf ascc ld && ln -sf ascc ar && ln -sf ascc ranlib && ln -sf ascc cc
+	cd $(dir $@) && ln -sf ascc as && ln -sf ascc ld && ln -sf ascc ar && ln -sf ascc ranlib && ln -sf ascc nm && ln -sf ascc cc
 
 $(BUILD)/stage2/ascc: $(BUILD)/stage1/ascc
 	@mkdir -p $(dir $@)
 	$(BUILD)/stage1/ascc $(DEFS) -o $@ $(SRCS)
-	cd $(dir $@) && ln -sf ascc as && ln -sf ascc ld && ln -sf ascc ar && ln -sf ascc ranlib && ln -sf ascc cc
+	cd $(dir $@) && ln -sf ascc as && ln -sf ascc ld && ln -sf ascc ar && ln -sf ascc ranlib && ln -sf ascc nm && ln -sf ascc cc
 
 $(BUILD)/stage3/ascc: $(BUILD)/stage2/ascc
 	@mkdir -p $(dir $@)
 	$(BUILD)/stage2/ascc $(DEFS) -o $@ $(SRCS)
-	cd $(dir $@) && ln -sf ascc as && ln -sf ascc ld && ln -sf ascc ar && ln -sf ascc ranlib && ln -sf ascc cc
+	cd $(dir $@) && ln -sf ascc as && ln -sf ascc ld && ln -sf ascc ar && ln -sf ascc ranlib && ln -sf ascc nm && ln -sf ascc cc
 
 stage1: $(BUILD)/stage1/ascc
 stage2: $(BUILD)/stage2/ascc

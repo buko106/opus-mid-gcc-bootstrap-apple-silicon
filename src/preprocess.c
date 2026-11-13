@@ -59,6 +59,7 @@ static Token *expand_macro_tok;
 
 static Token *preprocess2(Token *tok);
 static Macro *find_macro(Token *tok);
+static bool expand_macro(Token **rest, Token *tok);
 
 static bool is_hash(Token *tok) { return tok->at_bol && equal(tok, "#"); }
 
@@ -239,19 +240,51 @@ static Token *read_const_expr(Token **rest, Token *tok) {
   return head.next;
 }
 
+/* Macro-expands an #if expression.  A `defined` operator produced by a
+   macro expansion is evaluated without expanding its operand, as GCC
+   does. */
+static Token *expand_if_expr(Token *tok) {
+  Token head;
+  Token *cur = &head;
+  head.next = NULL;
+  while (tok->kind != TK_EOF) {
+    if (equal(tok, "defined")) {
+      Token *start = tok;
+      bool has_paren = consume(&tok, tok->next, "(");
+      Macro *m;
+      if (tok->kind != TK_IDENT && tok->kind != TK_KEYWORD)
+        error_tok(start, "macro name must be an identifier");
+      m = find_macro(tok);
+      tok = tok->next;
+      if (has_paren)
+        tok = skip(tok, ")");
+      cur = cur->next = new_num_token(m ? 1 : 0, start);
+      continue;
+    }
+    if (expand_macro(&tok, tok))
+      continue;
+    cur = cur->next = tok;
+    tok = tok->next;
+  }
+  cur->next = tok;
+  return head.next;
+}
+
 static int64_t eval_const_expr(Token **rest, Token *tok) {
   Token *start = tok;
   Token *expr = read_const_expr(rest, tok->next);
   Token *t, *rest2;
   int64_t val;
-  expr = preprocess2(expr);
+  expr = expand_if_expr(expr);
   if (expr->kind == TK_EOF)
     error_tok(start, "no expression");
   for (t = expr; t->kind != TK_EOF; t = t->next) {
-    if (t->kind == TK_IDENT) {
-      Token *next = t->next;
-      *t = *new_num_token(0, t);
-      t->next = next;
+    if (t->kind == TK_IDENT || t->kind == TK_KEYWORD) {
+      /* remaining identifiers evaluate to 0; keep the location for
+         diagnostics */
+      t->kind = TK_NUM;
+      t->val = 0;
+      t->ty = ty_int;
     }
   }
   convert_pp_tokens(expr);
@@ -558,8 +591,12 @@ static bool expand_macro(Token **rest, Token *tok) {
     for (t = body; t->kind != TK_EOF; t = t->next)
       t->origin = tok;
     *rest = append(body, tok->next);
-    (*rest)->at_bol = tok->at_bol;
-    (*rest)->has_space = tok->has_space;
+    /* An empty expansion must not change the flags of the next token
+       (it may be a '#' starting a directive). */
+    if (body->kind != TK_EOF) {
+      (*rest)->at_bol = tok->at_bol;
+      (*rest)->has_space = tok->has_space;
+    }
     return true;
   }
   if (!equal(tok->next, "("))
@@ -578,8 +615,10 @@ static bool expand_macro(Token **rest, Token *tok) {
     for (t = body; t->kind != TK_EOF; t = t->next)
       t->origin = macro_token;
     *rest = append(body, tok->next);
-    (*rest)->at_bol = macro_token->at_bol;
-    (*rest)->has_space = macro_token->has_space;
+    if (body->kind != TK_EOF) {
+      (*rest)->at_bol = macro_token->at_bol;
+      (*rest)->has_space = macro_token->has_space;
+    }
   }
   return true;
 }
@@ -711,10 +750,12 @@ static Token *include_file(Token *tok, char *path, Token *filename_tok) {
 
 static void read_line_marker(Token **rest, Token *tok) {
   Token *start = tok;
-  tok = preprocess(copy_line(rest, tok));
+  tok = preprocess2(copy_line(rest, tok));
+  convert_pp_tokens(tok);
   if (tok->kind != TK_NUM || tok->ty->kind != TY_INT)
     error_tok(tok, "invalid line marker");
-  start->file->line_delta = (int)(tok->val - start->line_no);
+  /* the line after the directive gets number tok->val */
+  start->file->line_delta = (int)(tok->val - start->line_no - 1);
   tok = tok->next;
   if (tok->kind == TK_EOF)
     return;

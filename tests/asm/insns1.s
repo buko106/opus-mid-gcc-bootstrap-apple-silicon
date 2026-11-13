@@ -125,3 +125,21 @@ _f:
 	mrs	x0, tpidrro_el0
 	yield
 	hint	#34
+3:
+	beq	3b
+	bne	3b
+	bls	3b
+	bcs	3b
+	bcc	3b
+	bge	3b
+	blt	3b
+	bal	3b
+	uxtb	x1, w0
+	uxth	x2, w3
+	uxtw	x3, w3
+	str	x24, [x28,x1,lsl 3]
+	dc	cvau, x2
+	ic	ivau, x0
+	dc	civac, x1
+	dc	zva, x3
+	ic	iallu

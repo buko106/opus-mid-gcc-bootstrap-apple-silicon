@@ -99,7 +99,10 @@ static const char *output = "a.out";
 static const char *entry_name = "_main";
 static uint32_t minos = 11 << 16;
 static uint32_t sdkver = 11 << 16;
-static const char *syslibroot = "";
+#ifndef ASCC_SYSROOT
+#define ASCC_SYSROOT "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk"
+#endif
+static const char *syslibroot = ASCC_SYSROOT;
 static Vec libdirs;
 static int nodyld_info_debug;
 
@@ -1249,7 +1252,7 @@ static int cmp_lsym_name(const void *a, const void *b) {
   return strcmp((*(LSym *const *)a)->name, (*(LSym *const *)b)->name);
 }
 
-static Vec exported, imported;
+static Vec exported, imported, locals_out;
 
 static void collect_symtab(LSym *s) {
   if (s->kind == SYM_DYLIB && (s->referenced || s->got_index >= 0))
@@ -1541,6 +1544,18 @@ static int link_output(void) {
     build_bind(&bind);
   build_exports(&exports);
   each_global(collect_symtab);
+  /* local (static) symbols, for debuggers and crash reports */
+  for (i = 0; i < files.len; i++) {
+    InFile *f = files.data[i];
+    int k;
+    for (k = 0; k < f->nsyms; k++) {
+      LSym *ls = f->syms[k];
+      if (ls && ls->is_local && ls->kind == SYM_DEFINED && ls->sect->out &&
+          ls->name[0] != 'L' && strncmp(ls->name, "ltmp", 4) != 0 &&
+          strncmp(ls->name, "l_", 2) != 0)
+        vec_push(&locals_out, ls);
+    }
+  }
   qsort(exported.data, exported.len, sizeof(void *), cmp_lsym_name);
   qsort(imported.data, imported.len, sizeof(void *), cmp_lsym_name);
   nsectnum = 0;
@@ -1549,6 +1564,16 @@ static int link_output(void) {
   buf_init(&symtab);
   buf_init(&strtab);
   buf_add(&strtab, " ", 2);
+  for (i = 0; i < locals_out.len; i++) {
+    LSym *s = locals_out.data[i];
+    buf_u32(&symtab, (uint32_t)strtab.len);
+    buf_adds(&strtab, s->name);
+    buf_addc(&strtab, 0);
+    buf_u8(&symtab, N_SECT);
+    buf_u8(&symtab, (uint8_t)s->sect->out->index);
+    buf_u16(&symtab, 0);
+    buf_u64(&symtab, sym_address(s));
+  }
   for (i = 0; i < exported.len + imported.len; i++) {
     LSym *s = i < exported.len ? exported.data[i] : imported.data[i - exported.len];
     uint8_t type;
@@ -1591,7 +1616,7 @@ static int link_output(void) {
     memset(&idx, 0, sizeof(idx));
     for (i = 0; i < exported.len + imported.len; i++) {
       LSym *s = i < exported.len ? exported.data[i] : imported.data[i - exported.len];
-      map_put(&idx, s->name, (void *)(intptr_t)(i + 1));
+      map_put(&idx, s->name, (void *)(intptr_t)(i + 1 + locals_out.len));
     }
     for (i = 0; i < nstubs; i++)
       buf_u32(&indirect, (uint32_t)((intptr_t)map_get(&idx, stubsyms[i]->name) - 1));
@@ -1648,17 +1673,17 @@ static int link_output(void) {
     buf_u32(&cmds, LC_SYMTAB);
     buf_u32(&cmds, 24);
     buf_u32(&cmds, (uint32_t)sym_off);
-    buf_u32(&cmds, (uint32_t)(exported.len + imported.len));
+    buf_u32(&cmds, (uint32_t)(locals_out.len + exported.len + imported.len));
     buf_u32(&cmds, (uint32_t)str_off);
     buf_u32(&cmds, (uint32_t)strtab.len);
     dysym_cmd_off = (int)cmds.len;
     buf_u32(&cmds, LC_DYSYMTAB);
     buf_u32(&cmds, 80);
     buf_u32(&cmds, 0);
-    buf_u32(&cmds, 0);
-    buf_u32(&cmds, 0);
+    buf_u32(&cmds, (uint32_t)locals_out.len);
+    buf_u32(&cmds, (uint32_t)locals_out.len);
     buf_u32(&cmds, (uint32_t)exported.len);
-    buf_u32(&cmds, (uint32_t)exported.len);
+    buf_u32(&cmds, (uint32_t)(locals_out.len + exported.len));
     buf_u32(&cmds, (uint32_t)imported.len);
     buf_zero(&cmds, 24);
     buf_u32(&cmds, indirect.len ? (uint32_t)ind_off : 0);
@@ -1806,7 +1831,10 @@ int ld_main(int argc, char **argv) {
               strcmp(a, "-undefined") == 0 || strcmp(a, "-multiply_defined") == 0 ||
               strcmp(a, "-stack_size") == 0 || strcmp(a, "-install_name") == 0 ||
               strcmp(a, "-object_path_lto") == 0 || strcmp(a, "-lto_library") == 0 ||
-              strcmp(a, "-mllvm") == 0) && i + 1 < argc)
+              strcmp(a, "-mllvm") == 0 ||
+              strcmp(a, "-weak_reference_mismatches") == 0 ||
+              strcmp(a, "-multiply_defined_unused") == 0 ||
+              strcmp(a, "-read_only_relocs") == 0) && i + 1 < argc)
       i++;
     else if (strcmp(a, "-v") == 0 || strcmp(a, "--version") == 0) {
       printf("ascc ld (arm64 Mach-O linker)\n");

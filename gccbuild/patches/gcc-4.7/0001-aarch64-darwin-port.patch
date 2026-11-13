@@ -1,0 +1,1636 @@
+diff --git a/config.sub b/config.sub
+index 78176a440..d6829f0dd 100755
+--- a/config.sub
++++ b/config.sub
+@@ -247,6 +247,7 @@ case $basic_machine in
+ 	# Some are omitted here because they have special meanings below.
+ 	1750a | 580 \
+ 	| a29k \
++	| aarch64 | aarch64_be \
+ 	| alpha | alphaev[4-8] | alphaev56 | alphaev6[78] | alphapca5[67] \
+ 	| alpha64 | alpha64ev[4-8] | alpha64ev56 | alpha64ev6[78] | alpha64pca5[67] \
+ 	| am33_2.0 \
+@@ -356,6 +357,7 @@ case $basic_machine in
+ 	# Recognize the basic CPU types with company name.
+ 	580-* \
+ 	| a29k-* \
++	| aarch64-* | aarch64_be-* \
+ 	| alpha-* | alphaev[4-8]-* | alphaev56-* | alphaev6[78]-* \
+ 	| alpha64-* | alpha64ev[4-8]-* | alpha64ev56-* | alpha64ev6[78]-* \
+ 	| alphapca5[67]-* | alpha64pca5[67]-* | arc-* \
+diff --git a/gcc/common/config/aarch64/aarch64-common.c b/gcc/common/config/aarch64/aarch64-common.c
+new file mode 100644
+index 000000000..2789c18ae
+--- /dev/null
++++ b/gcc/common/config/aarch64/aarch64-common.c
+@@ -0,0 +1,43 @@
++/* Common hooks for AArch64 (Darwin arm64 port of the GCC 4.8 back end).
++   Copyright (C) 2026 Free Software Foundation, Inc.
++
++   This file is part of GCC.
++
++   GCC is free software; you can redistribute it and/or modify it
++   under the terms of the GNU General Public License as published
++   by the Free Software Foundation; either version 3, or (at your
++   option) any later version.
++
++   GCC is distributed in the hope that it will be useful, but WITHOUT
++   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
++   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
++   License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with GCC; see the file COPYING3.  If not see
++   <http://www.gnu.org/licenses/>.  */
++
++#include "config.h"
++#include "system.h"
++#include "coretypes.h"
++#include "tm.h"
++#include "tm_p.h"
++#include "common/common-target.h"
++#include "common/common-target-def.h"
++#include "opts.h"
++#include "flags.h"
++
++/* Darwin keeps frame records (x29 chains) for the system unwinder and
++   debuggers, so the frame pointer is not omitted by default.  */
++static const struct default_options aarch64_option_optimization_table[] =
++  {
++    { OPT_LEVELS_NONE, 0, NULL, 0 }
++  };
++
++#undef TARGET_OPTION_OPTIMIZATION_TABLE
++#define TARGET_OPTION_OPTIMIZATION_TABLE aarch64_option_optimization_table
++
++#undef TARGET_DEFAULT_TARGET_FLAGS
++#define TARGET_DEFAULT_TARGET_FLAGS 0
++
++struct gcc_targetm_common targetm_common = TARGETM_COMMON_INITIALIZER;
+diff --git a/gcc/config.gcc b/gcc/config.gcc
+index 9503b96cf..901a9ef3b 100644
+--- a/gcc/config.gcc
++++ b/gcc/config.gcc
+@@ -325,6 +325,13 @@ alpha*-*-*)
+ am33_2.0-*-linux*)
+ 	cpu_type=mn10300
+ 	;;
++aarch64*-*-*)
++	cpu_type=aarch64
++	need_64bit_hwint=yes
++	extra_headers=
++	c_target_objs=
++	cxx_target_objs=
++	;;
+ arm*-*-*)
+ 	cpu_type=arm
+ 	extra_headers="mmintrin.h arm_neon.h"
+@@ -1204,6 +1211,11 @@ i[34567]86-*-darwin*)
+ 	with_cpu=${with_cpu:-core2}
+ 	tmake_file="${tmake_file} t-slibgcc"
+ 	;;
++aarch64-*-darwin*)
++	# Port of the GCC 4.8 aarch64 back end to the Darwin (Mach-O) ABI.
++	tmake_file="${tmake_file} aarch64/t-aarch64"
++	use_gcc_stdint=wrap
++	;;
+ x86_64-*-darwin*)
+ 	with_cpu=${with_cpu:-core2}
+ 	tmake_file="${tmake_file} ${cpu_type}/t-darwin64 t-slibgcc"
+diff --git a/gcc/config.host b/gcc/config.host
+index 696c79e35..d27a72493 100644
+--- a/gcc/config.host
++++ b/gcc/config.host
+@@ -262,6 +262,10 @@ case ${host} in
+     echo "*** linking with posix.dll is not allowed by the GNU GPL."
+     exit 1
+     ;;
++  aarch64-*-darwin*)
++    out_host_hook_obj="${out_host_hook_obj} host-aarch64-darwin.o"
++    host_xmake_file="${host_xmake_file} aarch64/x-darwin"
++    ;;
+   i[34567]86-*-darwin* | x86_64-*-darwin*)
+     out_host_hook_obj="${out_host_hook_obj} host-i386-darwin.o"
+     host_xmake_file="${host_xmake_file} i386/x-darwin"
+diff --git a/gcc/config/aarch64/aarch64-protos.h b/gcc/config/aarch64/aarch64-protos.h
+index 5d0072f9d..f42be717c 100644
+--- a/gcc/config/aarch64/aarch64-protos.h
++++ b/gcc/config/aarch64/aarch64-protos.h
+@@ -251,4 +251,9 @@ extern bool
+ aarch64_expand_vec_perm_const (rtx target, rtx op0, rtx op1, rtx sel);
+ 
+ char* aarch64_output_simd_mov_immediate (rtx *, enum machine_mode, unsigned);
++#if TARGET_MACHO
++extern rtx gen_macho_high (rtx, rtx);
++extern rtx gen_macho_low (rtx, rtx, rtx);
++#endif
++
+ #endif /* GCC_AARCH64_PROTOS_H */
+diff --git a/gcc/config/aarch64/aarch64.c b/gcc/config/aarch64/aarch64.c
+index ce572f912..1d82918b9 100644
+--- a/gcc/config/aarch64/aarch64.c
++++ b/gcc/config/aarch64/aarch64.c
+@@ -45,6 +45,8 @@
+ #include "gimple.h"
+ #include "optabs.h"
+ #include "dwarf2.h"
++/* get_hard_reg_initial_val is declared here in GCC 4.7.  */
++#include "integrate.h"
+ 
+ /* Classifies an address.
+ 
+@@ -92,7 +94,7 @@ enum aarch64_code_model aarch64_cmodel;
+ 
+ #ifdef HAVE_AS_TLS
+ #undef TARGET_HAVE_TLS
+-#define TARGET_HAVE_TLS 1
++#define TARGET_HAVE_TLS (!TARGET_MACHO)
+ #endif
+ 
+ static bool aarch64_composite_type_p (const_tree, enum machine_mode);
+@@ -682,7 +684,7 @@ aarch64_add_offset (enum machine_mode mode, rtx temp, rtx reg, HOST_WIDE_INT off
+       high = aarch64_force_temporary (temp, high);
+       reg = aarch64_force_temporary (temp, gen_rtx_PLUS (Pmode, high, reg));
+     }
+-  return plus_constant (mode, reg, offset);
++  return plus_constant (reg, offset);
+ }
+ 
+ void
+@@ -1196,7 +1198,7 @@ aarch64_function_arg_alignment (enum machine_mode mode, const_tree type)
+ static void
+ aarch64_layout_arg (cumulative_args_t pcum_v, enum machine_mode mode,
+ 		    const_tree type,
+-		    bool named ATTRIBUTE_UNUSED)
++		    bool named)
+ {
+   CUMULATIVE_ARGS *pcum = get_cumulative_args (pcum_v);
+   int ncrn, nvrn, nregs;
+@@ -1208,6 +1210,21 @@ aarch64_layout_arg (cumulative_args_t pcum_v, enum machine_mode mode,
+ 
+   pcum->aapcs_arg_processed = true;
+ 
++  /* Darwin: anonymous (variadic) arguments are passed on the stack in
++     8-byte slots and do not consume argument registers.  */
++  if (TARGET_MACHO && !named)
++    {
++      pcum->aapcs_nextncrn = pcum->aapcs_ncrn;
++      pcum->aapcs_nextnvrn = pcum->aapcs_nvrn;
++      pcum->aapcs_stack_words
++	= ((type ? int_size_in_bytes (type) : GET_MODE_SIZE (mode))
++	   + UNITS_PER_WORD - 1) / UNITS_PER_WORD;
++      if (aarch64_function_arg_alignment (mode, type) == 16 * BITS_PER_UNIT)
++	pcum->aapcs_stack_size = AARCH64_ROUND_UP (pcum->aapcs_stack_size,
++						   16 / UNITS_PER_WORD);
++      return;
++    }
++
+   allocate_ncrn = (type) ? !(FLOAT_TYPE_P (type)) : !FLOAT_MODE_P (mode);
+   allocate_nvrn = aarch64_vfp_is_call_candidate (pcum_v,
+ 						 mode,
+@@ -1494,7 +1511,7 @@ aarch64_frame_pointer_required (void)
+   if (flag_omit_frame_pointer && !faked_omit_frame_pointer)
+     return false;
+   else if (flag_omit_leaf_frame_pointer)
+-    return !crtl->is_leaf;
++    return !current_function_is_leaf;
+   return true;
+ }
+ 
+@@ -1619,7 +1636,7 @@ aarch64_save_or_restore_fprs (int start_offset, int increment,
+ 	{
+ 	  rtx mem;
+ 	  mem = gen_mem_ref (DFmode,
+-			     plus_constant (Pmode,
++			     plus_constant (
+ 					    base_rtx,
+ 					    start_offset));
+ 
+@@ -1637,8 +1654,7 @@ aarch64_save_or_restore_fprs (int start_offset, int increment,
+ 	      /* Next highest register to be saved.  */
+ 	      mem2 = gen_mem_ref (DFmode,
+ 				  plus_constant
+-				  (Pmode,
+-				   base_rtx,
++				  (base_rtx,
+ 				   start_offset + increment));
+ 	      if (restore == false)
+ 		{
+@@ -1705,7 +1721,7 @@ aarch64_save_or_restore_callee_save_registers (HOST_WIDE_INT offset,
+ 	{
+ 	  rtx mem;
+ 	  mem = gen_mem_ref (Pmode,
+-			     plus_constant (Pmode,
++			     plus_constant (
+ 					    base_rtx,
+ 					    start_offset));
+ 
+@@ -1723,8 +1739,7 @@ aarch64_save_or_restore_callee_save_registers (HOST_WIDE_INT offset,
+ 	      /* Next highest register to be saved.  */
+ 	      mem2 = gen_mem_ref (Pmode,
+ 				  plus_constant
+-				  (Pmode,
+-				   base_rtx,
++				  (base_rtx,
+ 				   start_offset + increment));
+ 	      if (restore == false)
+ 		{
+@@ -1913,11 +1928,11 @@ aarch64_expand_prologue (void)
+ 						      stack_pointer_rtx,
+ 						      GEN_INT (offset))));
+ 	      mem_fp = gen_frame_mem (DImode,
+-				      plus_constant (Pmode,
++				      plus_constant (
+ 						     stack_pointer_rtx,
+ 						     fp_offset));
+ 	      mem_lr = gen_frame_mem (DImode,
+-				      plus_constant (Pmode,
++				      plus_constant (
+ 						     stack_pointer_rtx,
+ 						     fp_offset
+ 						     + UNITS_PER_WORD));
+@@ -2056,11 +2071,11 @@ aarch64_expand_epilogue (bool for_sibcall)
+ 	  if (fp_offset)
+ 	    {
+ 	      mem_fp = gen_frame_mem (DImode,
+-				      plus_constant (Pmode,
++				      plus_constant (
+ 						     stack_pointer_rtx,
+ 						     fp_offset));
+ 	      mem_lr = gen_frame_mem (DImode,
+-				      plus_constant (Pmode,
++				      plus_constant (
+ 						     stack_pointer_rtx,
+ 						     fp_offset
+ 						     + UNITS_PER_WORD));
+@@ -2082,7 +2097,7 @@ aarch64_expand_epilogue (bool for_sibcall)
+ 	      RTX_FRAME_RELATED_P (XVECEXP (PATTERN (insn), 0, 2)) = 1;
+ 	      add_reg_note (insn, REG_CFA_ADJUST_CFA,
+ 			    (gen_rtx_SET (Pmode, stack_pointer_rtx,
+-					  plus_constant (Pmode, cfa_reg,
++					  plus_constant (cfa_reg,
+ 							 offset))));
+ 	    }
+ 
+@@ -2220,17 +2235,17 @@ aarch64_final_eh_return_addr (void)
+     {
+       if (fp_offset)
+         return gen_frame_mem (DImode,
+-			      plus_constant (Pmode, hard_frame_pointer_rtx, UNITS_PER_WORD));
++			      plus_constant (hard_frame_pointer_rtx, UNITS_PER_WORD));
+       else
+         return gen_frame_mem (DImode,
+-			      plus_constant (Pmode, stack_pointer_rtx, UNITS_PER_WORD));
++			      plus_constant (stack_pointer_rtx, UNITS_PER_WORD));
+     }
+ 
+   /* If FP is not needed, we calculate the location of LR, which would be
+      at the top of the saved registers block.  */
+ 
+   return gen_frame_mem (DImode,
+-			plus_constant (Pmode,
++			plus_constant (
+ 				       stack_pointer_rtx,
+ 				       fp_offset
+ 				       + cfun->machine->frame.saved_regs_size
+@@ -2366,7 +2381,7 @@ aarch64_output_mi_thunk (FILE *file, tree thunk ATTRIBUTE_UNUSED,
+ 	{
+ 	  if (delta >= -256 && delta < 256)
+ 	    addr = gen_rtx_PRE_MODIFY (Pmode, this_rtx,
+-				       plus_constant (Pmode, this_rtx, delta));
++				       plus_constant (this_rtx, delta));
+ 	  else
+ 	    aarch64_add_constant (this_regno, IP1_REGNUM, delta);
+ 	}
+@@ -2374,7 +2389,7 @@ aarch64_output_mi_thunk (FILE *file, tree thunk ATTRIBUTE_UNUSED,
+       aarch64_emit_move (temp0, gen_rtx_MEM (Pmode, addr));
+ 
+       if (vcall_offset >= -256 && vcall_offset < 32768)
+-	  addr = plus_constant (Pmode, temp0, vcall_offset);
++	  addr = plus_constant (temp0, vcall_offset);
+       else
+ 	{
+ 	  aarch64_build_constant (IP1_REGNUM, vcall_offset);
+@@ -3471,6 +3486,17 @@ aarch64_print_operand (FILE *f, rtx x, char code)
+       if (GET_CODE (x) == HIGH)
+ 	x = XEXP (x, 0);
+ 
++      if (TARGET_MACHO)
++	{
++	  output_addr_const (asm_out_file, x);
++	  if (aarch64_classify_symbolic_expression (x, SYMBOL_CONTEXT_ADR)
++	      == SYMBOL_SMALL_GOT)
++	    asm_fprintf (asm_out_file, "@GOTPAGE");
++	  else
++	    asm_fprintf (asm_out_file, "@PAGE");
++	  break;
++	}
++
+       switch (aarch64_classify_symbolic_expression (x, SYMBOL_CONTEXT_ADR))
+ 	{
+ 	case SYMBOL_SMALL_GOT:
+@@ -3624,6 +3650,13 @@ aarch64_print_operand_address (FILE *f, rtx x)
+ 	break;
+ 
+       case ADDRESS_LO_SUM:
++	if (TARGET_MACHO)
++	  {
++	    asm_fprintf (f, "[%s, ", reg_names [REGNO (addr.base)]);
++	    output_addr_const (f, addr.offset);
++	    asm_fprintf (f, "@PAGEOFF]");
++	    return;
++	  }
+ 	asm_fprintf (f, "[%s,#:lo12:", reg_names [REGNO (addr.base)]);
+ 	output_addr_const (f, addr.offset);
+ 	asm_fprintf (f, "]");
+@@ -3969,7 +4002,7 @@ aarch64_trampoline_init (rtx m_tramp, tree fndecl, rtx chain_value)
+   a_tramp = XEXP (m_tramp, 0);
+   emit_library_call (gen_rtx_SYMBOL_REF (Pmode, "__clear_cache"),
+ 		     LCT_NORMAL, VOIDmode, 2, a_tramp, Pmode,
+-		     plus_constant (Pmode, a_tramp, TRAMPOLINE_SIZE), Pmode);
++		     plus_constant (a_tramp, TRAMPOLINE_SIZE), Pmode);
+ }
+ 
+ static unsigned char
+@@ -4518,10 +4551,10 @@ aarch64_rtx_costs (rtx x, int code, int outer ATTRIBUTE_UNUSED,
+   return false;
+ }
+ 
++/* GCC 4.7's TARGET_ADDRESS_COST takes (rtx, bool); the GCC 4.8 hook also
++   took the mode and address space, which this implementation ignores.  */
+ static int
+-aarch64_address_cost (rtx x ATTRIBUTE_UNUSED,
+-		  enum machine_mode mode ATTRIBUTE_UNUSED,
+-		  addr_space_t as ATTRIBUTE_UNUSED, bool speed ATTRIBUTE_UNUSED)
++aarch64_address_cost (rtx x ATTRIBUTE_UNUSED, bool speed ATTRIBUTE_UNUSED)
+ {
+   enum rtx_code c  = GET_CODE (x);
+   const struct cpu_addrcost_table *addr_cost = aarch64_tune_params->addr_cost;
+@@ -4799,6 +4832,10 @@ aarch64_override_options (void)
+       aarch64_parse_tune ();
+     }
+ 
++  /* Darwin executables are PIE: non-local symbols go through the GOT.  */
++  if (TARGET_MACHO && !flag_pic)
++    flag_pic = 2;
++
+   initialize_aarch64_code_model ();
+ 
+   aarch64_build_bitmask_table ();
+@@ -5554,7 +5591,7 @@ aarch64_setup_incoming_varargs (cumulative_args_t cum_v, enum machine_mode mode,
+ 	  rtx ptr, mem;
+ 
+ 	  /* virtual_incoming_args_rtx should have been 16-byte aligned.  */
+-	  ptr = plus_constant (Pmode, virtual_incoming_args_rtx,
++	  ptr = plus_constant (virtual_incoming_args_rtx,
+ 			       - gr_saved * UNITS_PER_WORD);
+ 	  mem = gen_frame_mem (BLKmode, ptr);
+ 	  set_mem_alias_set (mem, get_varargs_alias_set ());
+@@ -5580,7 +5617,7 @@ aarch64_setup_incoming_varargs (cumulative_args_t cum_v, enum machine_mode mode,
+ 	    {
+ 	      rtx ptr, mem;
+ 
+-	      ptr = plus_constant (Pmode, virtual_incoming_args_rtx, off);
++	      ptr = plus_constant (virtual_incoming_args_rtx, off);
+ 	      mem = gen_frame_mem (mode, ptr);
+ 	      set_mem_alias_set (mem, get_varargs_alias_set ());
+ 	      aarch64_emit_move (mem, gen_rtx_REG (mode, V0_REGNUM + i));
+@@ -5601,6 +5638,12 @@ static void
+ aarch64_conditional_register_usage (void)
+ {
+   int i;
++  if (TARGET_MACHO)
++    {
++      /* x18 is the platform register on Darwin.  */
++      fixed_regs[R0_REGNUM + 18] = 1;
++      call_used_regs[R0_REGNUM + 18] = 1;
++    }
+   if (!TARGET_FLOAT)
+     {
+       for (i = V0_REGNUM; i <= V31_REGNUM; i++)
+@@ -6699,7 +6742,7 @@ aarch64_expand_vector_init (rtx target, rtx vals)
+ 
+   /* Construct the vector in memory one field at a time
+      and load the whole vector.  */
+-  mem = assign_stack_temp (mode, GET_MODE_SIZE (mode));
++  mem = assign_stack_temp (mode, GET_MODE_SIZE (mode), 0);
+   for (i = 0; i < n_elts; i++)
+     emit_move_insn (adjust_address_nv (mem, inner_mode,
+ 				    i * GET_MODE_SIZE (inner_mode)),
+@@ -7051,7 +7094,9 @@ aarch64_split_atomic_op (enum rtx_code code, rtx old_out, rtx new_out, rtx mem,
+ static void
+ aarch64_start_file (void)
+ {
+-  if (selected_arch)
++  if (TARGET_MACHO)
++    ;
++  else if (selected_arch)
+     asm_fprintf (asm_out_file, "\t.arch %s\n", selected_arch->name);
+   else if (selected_cpu)
+     asm_fprintf (asm_out_file, "\t.cpu %s\n", selected_cpu->name);
+@@ -7202,6 +7247,7 @@ aarch64_output_simd_mov_immediate (rtx *const_vector,
+ 
+ /* Split operands into moves from op[1] + op[2] into op[0].  */
+ 
++#if !TARGET_MACHO
+ void
+ aarch64_split_combinev16qi (rtx operands[3])
+ {
+@@ -7251,7 +7297,9 @@ aarch64_split_combinev16qi (rtx operands[3])
+ 	emit_move_insn (destlo, operands[1]);
+     }
+ }
++#endif
+ 
++#if !TARGET_MACHO
+ /* vec_perm support.  */
+ 
+ #define MAX_VECT_LEN 16
+@@ -7749,6 +7797,62 @@ aarch64_vectorize_vec_perm_const_ok (enum machine_mode vmode,
+   return ret;
+ }
+ 
++#else
++/* The Darwin port has no NEON patterns: no constant permutations.  */
++void
++aarch64_expand_vec_perm (rtx target ATTRIBUTE_UNUSED, rtx op0 ATTRIBUTE_UNUSED,
++			 rtx op1 ATTRIBUTE_UNUSED, rtx sel ATTRIBUTE_UNUSED)
++{
++  gcc_unreachable ();
++}
++
++bool
++aarch64_expand_vec_perm_const (rtx target ATTRIBUTE_UNUSED,
++			       rtx op0 ATTRIBUTE_UNUSED,
++			       rtx op1 ATTRIBUTE_UNUSED,
++			       rtx sel ATTRIBUTE_UNUSED)
++{
++  return false;
++}
++
++static bool
++aarch64_vectorize_vec_perm_const_ok (enum machine_mode vmode ATTRIBUTE_UNUSED,
++				     const unsigned char *sel ATTRIBUTE_UNUSED)
++{
++  return false;
++}
++
++/* No NEON builtins.  */
++void
++aarch64_init_builtins (void)
++{
++}
++
++rtx
++aarch64_expand_builtin (tree exp ATTRIBUTE_UNUSED, rtx target ATTRIBUTE_UNUSED,
++			rtx subtarget ATTRIBUTE_UNUSED,
++			enum machine_mode mode ATTRIBUTE_UNUSED,
++			int ignore ATTRIBUTE_UNUSED)
++{
++  gcc_unreachable ();
++}
++
++tree
++aarch64_builtin_decl (unsigned code ATTRIBUTE_UNUSED,
++		      bool initialize_p ATTRIBUTE_UNUSED)
++{
++  return error_mark_node;
++}
++
++tree
++aarch64_builtin_vectorized_function (tree fndecl ATTRIBUTE_UNUSED,
++				     tree type_out ATTRIBUTE_UNUSED,
++				     tree type_in ATTRIBUTE_UNUSED)
++{
++  return NULL_TREE;
++}
++#endif
++
+ #undef TARGET_ADDRESS_COST
+ #define TARGET_ADDRESS_COST aarch64_address_cost
+ 
+@@ -7966,6 +8070,68 @@ aarch64_vectorize_vec_perm_const_ok (enum machine_mode vmode,
+ #undef TARGET_FIXED_CONDITION_CODE_REGS
+ #define TARGET_FIXED_CONDITION_CODE_REGS aarch64_fixed_condition_code_regs
+ 
++#if TARGET_MACHO
++/* Darwin: plain-pointer va_list, all variadic arguments on the stack.  */
++#undef TARGET_BUILD_BUILTIN_VA_LIST
++#define TARGET_BUILD_BUILTIN_VA_LIST std_build_builtin_va_list
++#undef TARGET_EXPAND_BUILTIN_VA_START
++#define TARGET_EXPAND_BUILTIN_VA_START std_expand_builtin_va_start
++#undef TARGET_GIMPLIFY_VA_ARG_EXPR
++#define TARGET_GIMPLIFY_VA_ARG_EXPR std_gimplify_va_arg_expr
++#undef TARGET_SETUP_INCOMING_VARARGS
++#define TARGET_SETUP_INCOMING_VARARGS default_setup_incoming_varargs
++#undef TARGET_STRICT_ARGUMENT_NAMING
++#define TARGET_STRICT_ARGUMENT_NAMING hook_bool_CUMULATIVE_ARGS_true
++/* Callers extend char/short arguments to 32 bits.  */
++#undef TARGET_PROMOTE_FUNCTION_MODE
++#define TARGET_PROMOTE_FUNCTION_MODE default_promote_function_mode_always_promote
++#undef TARGET_ASM_ALIGNED_HI_OP
++#define TARGET_ASM_ALIGNED_HI_OP "\t.short\t"
++#undef TARGET_ASM_ALIGNED_SI_OP
++#define TARGET_ASM_ALIGNED_SI_OP "\t.long\t"
++#undef TARGET_ASM_ALIGNED_DI_OP
++#define TARGET_ASM_ALIGNED_DI_OP "\t.quad\t"
++#undef TARGET_ASM_UNALIGNED_HI_OP
++#define TARGET_ASM_UNALIGNED_HI_OP "\t.short\t"
++#undef TARGET_ASM_UNALIGNED_SI_OP
++#define TARGET_ASM_UNALIGNED_SI_OP "\t.long\t"
++#undef TARGET_ASM_UNALIGNED_DI_OP
++#define TARGET_ASM_UNALIGNED_DI_OP "\t.quad\t"
++#undef TARGET_VECTOR_MODE_SUPPORTED_P
++#define TARGET_VECTOR_MODE_SUPPORTED_P hook_bool_mode_false
++#undef TARGET_VECTORIZE_PREFERRED_SIMD_MODE
++#define TARGET_VECTORIZE_PREFERRED_SIMD_MODE default_preferred_simd_mode
++#undef TARGET_VECTORIZE_AUTOVECTORIZE_VECTOR_SIZES
++#define TARGET_VECTORIZE_AUTOVECTORIZE_VECTOR_SIZES \
++  default_autovectorize_vector_sizes
++#endif
++
++#if TARGET_MACHO
++/* The common Darwin code (darwin.c) references these Mach-O PIC helpers of
++   the x86 and PowerPC ports.  The arm64 port addresses symbols through
++   @PAGE/@GOTPAGE relocations instead and never calls them.  */
++rtx
++gen_macho_high (rtx a ATTRIBUTE_UNUSED, rtx b ATTRIBUTE_UNUSED)
++{
++  gcc_unreachable ();
++}
++
++rtx
++gen_macho_low (rtx a ATTRIBUTE_UNUSED, rtx b ATTRIBUTE_UNUSED,
++	       rtx c ATTRIBUTE_UNUSED)
++{
++  gcc_unreachable ();
++}
++
++void
++machopic_output_stub (FILE *file ATTRIBUTE_UNUSED,
++		      const char *symb ATTRIBUTE_UNUSED,
++		      const char *stub ATTRIBUTE_UNUSED)
++{
++  gcc_unreachable ();
++}
++#endif
++
+ struct gcc_target targetm = TARGET_INITIALIZER;
+ 
+ #include "gt-aarch64.h"
+diff --git a/gcc/config/aarch64/aarch64.md b/gcc/config/aarch64/aarch64.md
+index 76a512597..843f4ce20 100644
+--- a/gcc/config/aarch64/aarch64.md
++++ b/gcc/config/aarch64/aarch64.md
+@@ -66,6 +66,7 @@
+ )
+ 
+ (define_c_enum "unspec" [
++    UNSPEC_MACHOPIC_OFFSET	; used by the common Darwin code (darwin.c)
+     UNSPEC_CASESI
+     UNSPEC_CLS
+     UNSPEC_FRINTA
+@@ -1005,7 +1006,7 @@
+    (set (match_operand:GPI 2 "register_operand" "=r")
+         (match_operand:GPI 3 "memory_operand" "m"))]
+   "rtx_equal_p (XEXP (operands[3], 0),
+-		plus_constant (Pmode,
++		plus_constant (
+ 			       XEXP (operands[1], 0),
+ 			       GET_MODE_SIZE (<MODE>mode)))"
+   "ldp\\t%<w>0, %<w>2, %1"
+@@ -1021,7 +1022,7 @@
+    (set (match_operand:GPI 2 "memory_operand" "=m")
+         (match_operand:GPI 3 "register_operand" "r"))]
+   "rtx_equal_p (XEXP (operands[2], 0),
+-		plus_constant (Pmode,
++		plus_constant (
+ 			       XEXP (operands[0], 0),
+ 			       GET_MODE_SIZE (<MODE>mode)))"
+   "stp\\t%<w>1, %<w>3, %0"
+@@ -1037,7 +1038,7 @@
+    (set (match_operand:GPF 2 "register_operand" "=w")
+         (match_operand:GPF 3 "memory_operand" "m"))]
+   "rtx_equal_p (XEXP (operands[3], 0),
+-		plus_constant (Pmode,
++		plus_constant (
+ 			       XEXP (operands[1], 0),
+ 			       GET_MODE_SIZE (<MODE>mode)))"
+   "ldp\\t%<w>0, %<w>2, %1"
+@@ -1053,7 +1054,7 @@
+    (set (match_operand:GPF 2 "memory_operand" "=m")
+         (match_operand:GPF 3 "register_operand" "w"))]
+   "rtx_equal_p (XEXP (operands[2], 0),
+-		plus_constant (Pmode,
++		plus_constant (
+ 			       XEXP (operands[0], 0),
+ 			       GET_MODE_SIZE (<MODE>mode)))"
+   "stp\\t%<w>1, %<w>3, %0"
+@@ -1351,7 +1352,7 @@
+ 	(plus:GPI (ANY_EXTEND:GPI (match_operand:ALLX 1 "register_operand" "r"))
+ 		  (match_operand:GPI 2 "register_operand" "r")))]
+   ""
+-  "add\\t%<GPI:w>0, %<GPI:w>2, %<GPI:w>1, <su>xt<ALLX:size>"
++  "add\\t%<GPI:w>0, %<GPI:w>2, %w1, <su>xt<ALLX:size>"
+   [(set_attr "v8type" "alu_ext")
+    (set_attr "mode" "<GPI:MODE>")]
+ )
+@@ -1375,7 +1376,7 @@
+ 			      (match_operand 2 "aarch64_imm3" "Ui3"))
+ 		  (match_operand:GPI 3 "register_operand" "r")))]
+   ""
+-  "add\\t%<GPI:w>0, %<GPI:w>3, %<GPI:w>1, <su>xt<ALLX:size> %2"
++  "add\\t%<GPI:w>0, %<GPI:w>3, %w1, <su>xt<ALLX:size> %2"
+   [(set_attr "v8type" "alu_ext")
+    (set_attr "mode" "<GPI:MODE>")]
+ )
+@@ -1401,7 +1402,7 @@
+ 			    (match_operand 2 "aarch64_pwr_imm3" "Up3"))
+ 		  (match_operand:GPI 3 "register_operand" "r")))]
+   ""
+-  "add\\t%<GPI:w>0, %<GPI:w>3, %<GPI:w>1, <su>xt<ALLX:size> %p2"
++  "add\\t%<GPI:w>0, %<GPI:w>3, %w1, <su>xt<ALLX:size> %p2"
+   [(set_attr "v8type" "alu_ext")
+    (set_attr "mode" "<GPI:MODE>")]
+ )
+@@ -1428,7 +1429,7 @@
+ 		   (const_int 0))
+ 		  (match_operand:GPI 4 "register_operand" "r")))]
+   "aarch64_is_extend_from_extract (<MODE>mode, operands[2], operands[3])"
+-  "add\\t%<w>0, %<w>4, %<w>1, <su>xt%e3 %p2"
++  "add\\t%<w>0, %<w>4, %w1, <su>xt%e3 %p2"
+   [(set_attr "v8type" "alu_ext")
+    (set_attr "mode" "<MODE>")]
+ )
+@@ -1572,7 +1573,7 @@
+   "*
+   operands[3] = GEN_INT (aarch64_uxt_size (exact_log2 (INTVAL (operands[2])),
+ 					   INTVAL (operands[3])));
+-  return \"add\t%<w>0, %<w>4, %<w>1, uxt%e3 %p2\";"
++  return \"add\t%<w>0, %<w>4, %w1, uxt%e3 %p2\";"
+   [(set_attr "v8type" "alu_ext")
+    (set_attr "mode" "<MODE>")]
+ )
+@@ -1716,7 +1717,7 @@
+ 		   (ANY_EXTEND:GPI
+ 		    (match_operand:ALLX 2 "register_operand" "r"))))]
+   ""
+-  "sub\\t%<GPI:w>0, %<GPI:w>1, %<GPI:w>2, <su>xt<ALLX:size>"
++  "sub\\t%<GPI:w>0, %<GPI:w>1, %w2, <su>xt<ALLX:size>"
+   [(set_attr "v8type" "alu_ext")
+    (set_attr "mode" "<GPI:MODE>")]
+ )
+@@ -1741,7 +1742,7 @@
+ 				(match_operand:ALLX 2 "register_operand" "r"))
+ 			       (match_operand 3 "aarch64_imm3" "Ui3"))))]
+   ""
+-  "sub\\t%<GPI:w>0, %<GPI:w>1, %<GPI:w>2, <su>xt<ALLX:size> %3"
++  "sub\\t%<GPI:w>0, %<GPI:w>1, %w2, <su>xt<ALLX:size> %3"
+   [(set_attr "v8type" "alu_ext")
+    (set_attr "mode" "<GPI:MODE>")]
+ )
+@@ -1769,7 +1770,7 @@
+ 		    (match_operand 3 "const_int_operand" "n")
+ 		    (const_int 0))))]
+   "aarch64_is_extend_from_extract (<MODE>mode, operands[2], operands[3])"
+-  "sub\\t%<w>0, %<w>4, %<w>1, <su>xt%e3 %p2"
++  "sub\\t%<w>0, %<w>4, %w1, <su>xt%e3 %p2"
+   [(set_attr "v8type" "alu_ext")
+    (set_attr "mode" "<MODE>")]
+ )
+@@ -1801,7 +1802,7 @@
+   "*
+   operands[3] = GEN_INT (aarch64_uxt_size (exact_log2 (INTVAL (operands[2])),
+ 					   INTVAL (operands[3])));
+-  return \"sub\t%<w>0, %<w>4, %<w>1, uxt%e3 %p2\";"
++  return \"sub\t%<w>0, %<w>4, %w1, uxt%e3 %p2\";"
+   [(set_attr "v8type" "alu_ext")
+    (set_attr "mode" "<MODE>")]
+ )
+@@ -2152,7 +2153,7 @@
+ 			 (match_operand:ALLX 0 "register_operand" "r"))
+ 			(match_operand:GPI 1 "register_operand" "r")))]
+   ""
+-  "cmp\\t%<GPI:w>1, %<GPI:w>0, <su>xt<ALLX:size>"
++  "cmp\\t%<GPI:w>1, %w0, <su>xt<ALLX:size>"
+   [(set_attr "v8type" "alus_ext")
+    (set_attr "mode" "<GPI:MODE>")]
+ )
+@@ -2834,24 +2835,107 @@
+ ;; frint floating-point round to integral standard patterns.
+ ;; Expands to btrunc, ceil, floor, nearbyint, rint, round.
+ 
+-(define_insn "<frint_pattern><mode>2"
++;; frint/fcvt patterns: the FRINT and FCVT int iterators of GCC 4.8 are
++;; expanded by hand because GCC 4.7 has no define_int_iterator.
++(define_insn "btrunc<mode>2"
+   [(set (match_operand:GPF 0 "register_operand" "=w")
+ 	(unspec:GPF [(match_operand:GPF 1 "register_operand" "w")]
+-	 FRINT))]
++	 UNSPEC_FRINTZ))]
+   "TARGET_FLOAT"
+-  "frint<frint_suffix>\\t%<s>0, %<s>1"
++  "frintz\\t%<s>0, %<s>1"
+   [(set_attr "v8type" "frint")
+    (set_attr "mode" "<MODE>")]
+ )
+ 
+-;; frcvt floating-point round to integer and convert standard patterns.
+-;; Expands to lbtrunc, lceil, lfloor, lround.
+-(define_insn "l<fcvt_pattern><su_optab><GPF:mode><GPI:mode>2"
++(define_insn "ceil<mode>2"
++  [(set (match_operand:GPF 0 "register_operand" "=w")
++	(unspec:GPF [(match_operand:GPF 1 "register_operand" "w")]
++	 UNSPEC_FRINTP))]
++  "TARGET_FLOAT"
++  "frintp\\t%<s>0, %<s>1"
++  [(set_attr "v8type" "frint")
++   (set_attr "mode" "<MODE>")]
++)
++
++(define_insn "floor<mode>2"
++  [(set (match_operand:GPF 0 "register_operand" "=w")
++	(unspec:GPF [(match_operand:GPF 1 "register_operand" "w")]
++	 UNSPEC_FRINTM))]
++  "TARGET_FLOAT"
++  "frintm\\t%<s>0, %<s>1"
++  [(set_attr "v8type" "frint")
++   (set_attr "mode" "<MODE>")]
++)
++
++(define_insn "nearbyint<mode>2"
++  [(set (match_operand:GPF 0 "register_operand" "=w")
++	(unspec:GPF [(match_operand:GPF 1 "register_operand" "w")]
++	 UNSPEC_FRINTI))]
++  "TARGET_FLOAT"
++  "frinti\\t%<s>0, %<s>1"
++  [(set_attr "v8type" "frint")
++   (set_attr "mode" "<MODE>")]
++)
++
++(define_insn "rint<mode>2"
++  [(set (match_operand:GPF 0 "register_operand" "=w")
++	(unspec:GPF [(match_operand:GPF 1 "register_operand" "w")]
++	 UNSPEC_FRINTX))]
++  "TARGET_FLOAT"
++  "frintx\\t%<s>0, %<s>1"
++  [(set_attr "v8type" "frint")
++   (set_attr "mode" "<MODE>")]
++)
++
++(define_insn "round<mode>2"
++  [(set (match_operand:GPF 0 "register_operand" "=w")
++	(unspec:GPF [(match_operand:GPF 1 "register_operand" "w")]
++	 UNSPEC_FRINTA))]
++  "TARGET_FLOAT"
++  "frinta\\t%<s>0, %<s>1"
++  [(set_attr "v8type" "frint")
++   (set_attr "mode" "<MODE>")]
++)
++
++(define_insn "lbtrunc<su_optab><GPF:mode><GPI:mode>2"
++  [(set (match_operand:GPI 0 "register_operand" "=r")
++	(FIXUORS:GPI (unspec:GPF [(match_operand:GPF 1 "register_operand" "w")]
++		      UNSPEC_FRINTZ)))]
++  "TARGET_FLOAT"
++  "fcvtz<su>\\t%<GPI:w>0, %<GPF:s>1"
++  [(set_attr "v8type" "fcvtf2i")
++   (set_attr "mode" "<GPF:MODE>")
++   (set_attr "mode2" "<GPI:MODE>")]
++)
++
++(define_insn "lceil<su_optab><GPF:mode><GPI:mode>2"
+   [(set (match_operand:GPI 0 "register_operand" "=r")
+ 	(FIXUORS:GPI (unspec:GPF [(match_operand:GPF 1 "register_operand" "w")]
+-		      FCVT)))]
++		      UNSPEC_FRINTP)))]
+   "TARGET_FLOAT"
+-  "fcvt<frint_suffix><su>\\t%<GPI:w>0, %<GPF:s>1"
++  "fcvtp<su>\\t%<GPI:w>0, %<GPF:s>1"
++  [(set_attr "v8type" "fcvtf2i")
++   (set_attr "mode" "<GPF:MODE>")
++   (set_attr "mode2" "<GPI:MODE>")]
++)
++
++(define_insn "lfloor<su_optab><GPF:mode><GPI:mode>2"
++  [(set (match_operand:GPI 0 "register_operand" "=r")
++	(FIXUORS:GPI (unspec:GPF [(match_operand:GPF 1 "register_operand" "w")]
++		      UNSPEC_FRINTM)))]
++  "TARGET_FLOAT"
++  "fcvtm<su>\\t%<GPI:w>0, %<GPF:s>1"
++  [(set_attr "v8type" "fcvtf2i")
++   (set_attr "mode" "<GPF:MODE>")
++   (set_attr "mode2" "<GPI:MODE>")]
++)
++
++(define_insn "lround<su_optab><GPF:mode><GPI:mode>2"
++  [(set (match_operand:GPI 0 "register_operand" "=r")
++	(FIXUORS:GPI (unspec:GPF [(match_operand:GPF 1 "register_operand" "w")]
++		      UNSPEC_FRINTA)))]
++  "TARGET_FLOAT"
++  "fcvta<su>\\t%<GPI:w>0, %<GPF:s>1"
+   [(set_attr "v8type" "fcvtf2i")
+    (set_attr "mode" "<GPF:MODE>")
+    (set_attr "mode2" "<GPI:MODE>")]
+@@ -3212,7 +3296,7 @@
+ 	(lo_sum:DI (match_operand:DI 1 "register_operand" "r")
+ 		   (match_operand 2 "aarch64_valid_symref" "S")))]
+   ""
+-  "add\\t%0, %1, :lo12:%a2"
++  "* return TARGET_MACHO ? \"add\\t%0, %1, %a2@PAGEOFF\" : \"add\\t%0, %1, :lo12:%a2\";"
+   [(set_attr "v8type" "alu")
+    (set_attr "mode" "DI")]
+ 
+@@ -3225,7 +3309,7 @@
+ 			      (match_operand:DI 2 "aarch64_valid_symref" "S")))]
+ 		   UNSPEC_GOTSMALLPIC))]
+   ""
+-  "ldr\\t%0, [%1, #:got_lo12:%a2]"
++  "* return TARGET_MACHO ? \"ldr\\t%0, [%1, %a2@GOTPAGEOFF]\" : \"ldr\\t%0, [%1, #:got_lo12:%a2]\";"
+   [(set_attr "v8type" "load1")
+    (set_attr "mode" "DI")]
+ )
+@@ -3319,7 +3403,116 @@
+ })
+ 
+ ;; AdvSIMD Stuff
+-(include "aarch64-simd.md")
++;; aarch64-simd.md is not used by the Darwin port (no NEON support); the
++;; attributes it defines are still used by the other patterns.
++(define_attr "simd_mode" "unknown,none,V8QI,V16QI,V4HI,V8HI,V2SI,V4SI,V2DI,V2SF,V4SF,V2DF,OI,CI,XI,DI,DF,SI,HI,QI"
++  (const_string "unknown"))
++
++(define_attr "simd_type"
++   "simd_abd,\
++   simd_abdl,\
++   simd_adal,\
++   simd_add,\
++   simd_addl,\
++   simd_addlv,\
++   simd_addn,\
++   simd_addn2,\
++   simd_addv,\
++   simd_cls,\
++   simd_cmp,\
++   simd_cnt,\
++   simd_dup,\
++   simd_dupgp,\
++   simd_ext,\
++   simd_fadd,\
++   simd_fcmp,\
++   simd_fcvti,\
++   simd_fcvtl,\
++   simd_fcvtn,\
++   simd_fcvtn2,\
++   simd_fdiv,\
++   simd_fminmax,\
++   simd_fminmaxv,\
++   simd_fmla,\
++   simd_fmla_elt,\
++   simd_fmul,\
++   simd_fmul_elt,\
++   simd_fnegabs,\
++   simd_frcpe,\
++   simd_frcps,\
++   simd_frecx,\
++   simd_frint,\
++   simd_fsqrt,\
++   simd_icvtf,\
++   simd_ins,\
++   simd_insgp,\
++   simd_load1,\
++   simd_load1r,\
++   simd_load1s,\
++   simd_load2,\
++   simd_load2r,\
++   simd_load2s,\
++   simd_load3,\
++   simd_load3r,\
++   simd_load3s,\
++   simd_load4,\
++   simd_load4r,\
++   simd_load4s,\
++   simd_logic,\
++   simd_logic_imm,\
++   simd_minmax,\
++   simd_minmaxv,\
++   simd_mla,\
++   simd_mla_elt,\
++   simd_mlal,\
++   simd_mlal_elt,\
++   simd_movgp,\
++   simd_move,\
++   simd_move_imm,\
++   simd_mul,\
++   simd_mul_elt,\
++   simd_mull,\
++   simd_mull_elt,\
++   simd_negabs,\
++   simd_rbit,\
++   simd_rcpe,\
++   simd_rcps,\
++   simd_rev,\
++   simd_sat_add,\
++   simd_sat_mlal,\
++   simd_sat_mlal_elt,\
++   simd_sat_mul,\
++   simd_sat_mul_elt,\
++   simd_sat_mull,\
++   simd_sat_mull_elt,\
++   simd_sat_negabs,\
++   simd_sat_shift,\
++   simd_sat_shift_imm,\
++   simd_sat_shiftn_imm,\
++   simd_sat_shiftn2_imm,\
++   simd_shift,\
++   simd_shift_acc,\
++   simd_shift_imm,\
++   simd_shift_imm_acc,\
++   simd_shiftl,\
++   simd_shiftl_imm,\
++   simd_shiftn_imm,\
++   simd_shiftn2_imm,\
++   simd_store1,\
++   simd_store1s,\
++   simd_store2,\
++   simd_store2s,\
++   simd_store3,\
++   simd_store3s,\
++   simd_store4,\
++   simd_store4s,\
++   simd_tbl,\
++   simd_trn,\
++   simd_uzp,\
++   simd_zip,\
++   none"
++  (const_string "none"))
++
+ 
+ ;; Atomic Operations
+ (include "atomics.md")
+diff --git a/gcc/config/aarch64/darwin.h b/gcc/config/aarch64/darwin.h
+new file mode 100644
+index 000000000..535b412a3
+--- /dev/null
++++ b/gcc/config/aarch64/darwin.h
+@@ -0,0 +1,158 @@
++/* Target definitions for AArch64 (arm64) running Darwin (macOS).
++   Part of the bootstrap port of the GCC 4.8 aarch64 back end to GCC 4.7.
++   Copyright (C) 2026 Free Software Foundation, Inc.
++
++   This file is part of GCC.
++
++   GCC is free software; you can redistribute it and/or modify it
++   under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 3, or (at your option)
++   any later version.
++
++   GCC is distributed in the hope that it will be useful, but
++   WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with GCC; see the file COPYING3.  If not see
++   <http://www.gnu.org/licenses/>.  */
++
++#undef TARGET_MACHO
++#define TARGET_MACHO 1
++
++#define DARWIN_ARM64 1
++
++/* Used by the common Darwin code.  */
++#undef TARGET_64BIT
++#define TARGET_64BIT 1
++
++/* Darwin arm64 ABI differences from AAPCS64:
++   - plain char is signed;
++   - long double is the same as double;
++   - x18 is reserved for the platform;
++   - variadic arguments are always passed on the stack (8-byte slots);
++   - callers extend char/short arguments to 32 bits.  */
++#undef DEFAULT_SIGNED_CHAR
++#define DEFAULT_SIGNED_CHAR 1
++
++#undef LONG_DOUBLE_TYPE_SIZE
++#define LONG_DOUBLE_TYPE_SIZE 64
++#undef LIBGCC2_LONG_DOUBLE_TYPE_SIZE
++#define LIBGCC2_LONG_DOUBLE_TYPE_SIZE 64
++
++#undef WCHAR_TYPE
++#define WCHAR_TYPE "int"
++#undef WCHAR_TYPE_SIZE
++#define WCHAR_TYPE_SIZE 32
++
++#undef PTRDIFF_TYPE
++#define PTRDIFF_TYPE "long int"
++#undef SIZE_TYPE
++#define SIZE_TYPE "long unsigned int"
++
++#undef TARGET_OS_CPP_BUILTINS
++#define TARGET_OS_CPP_BUILTINS()		\
++  do {						\
++    builtin_define ("__arm64__");		\
++    builtin_define ("__arm64");			\
++    builtin_define ("__LITTLE_ENDIAN__");	\
++    builtin_define ("__LP64__");		\
++    darwin_cpp_builtins (pfile);		\
++  } while (0)
++
++#define DARWIN_ARCH_SPEC "arm64"
++#define DARWIN_SUBARCH_SPEC DARWIN_ARCH_SPEC
++#undef DARWIN_MINVERSION_SPEC
++#define DARWIN_MINVERSION_SPEC "11.0"
++
++#undef SUBTARGET_EXTRA_SPECS
++#define SUBTARGET_EXTRA_SPECS					\
++  DARWIN_EXTRA_SPECS						\
++  { "darwin_arch", DARWIN_ARCH_SPEC },				\
++  { "darwin_crt2", "" },					\
++  { "darwin_subarch", DARWIN_SUBARCH_SPEC },
++
++/* aarch64.h has no EXTRA_SPECS of its own.  */
++#undef EXTRA_SPECS
++#define EXTRA_SPECS SUBTARGET_EXTRA_SPECS
++
++#undef ASM_SPEC
++#define ASM_SPEC "-arch arm64"
++
++/* No crt1.o: the executable uses LC_MAIN.  */
++#undef STARTFILE_SPEC
++#define STARTFILE_SPEC ""
++#undef ENDFILE_SPEC
++#define ENDFILE_SPEC ""
++
++/* Only static libgcc is built.  */
++#undef REAL_LIBGCC_SPEC
++#define REAL_LIBGCC_SPEC "-lgcc"
++
++/* Never run dsymutil.  */
++#undef LINK_COMMAND_SPEC
++#define LINK_COMMAND_SPEC LINK_COMMAND_SPEC_A
++
++#undef ASM_COMMENT_START
++#define ASM_COMMENT_START "//"
++
++#undef LOCAL_LABEL_PREFIX
++#define LOCAL_LABEL_PREFIX "L"
++#undef REGISTER_PREFIX
++#define REGISTER_PREFIX ""
++
++#undef USER_LABEL_PREFIX
++#define USER_LABEL_PREFIX "_"
++
++#undef ASM_OUTPUT_ALIGN
++#define ASM_OUTPUT_ALIGN(FILE, LOG)			\
++  do {							\
++    if ((LOG) != 0)					\
++      fprintf ((FILE), "\t.p2align\t%d\n", (int) (LOG));	\
++  } while (0)
++
++/* Mach-O has no .size/.type; darwin.h handles labels.  */
++#undef ASM_DECLARE_FUNCTION_SIZE
++
++#undef ASM_OUTPUT_SKIP
++#define ASM_OUTPUT_SKIP(FILE, SIZE) \
++  fprintf ((FILE), "\t.space\t" HOST_WIDE_INT_PRINT_UNSIGNED "\n", \
++	   (unsigned HOST_WIDE_INT) (SIZE))
++
++#undef GOT_SYMBOL_NAME
++#define GOT_SYMBOL_NAME "__GLOBAL_OFFSET_TABLE_"
++
++/* DWARF register numbering is the standard AArch64 one.  */
++#undef DBX_REGISTER_NUMBER
++#define DBX_REGISTER_NUMBER(REGNO) aarch64_dbx_register_number (REGNO)
++
++#undef PREFERRED_DEBUGGING_TYPE
++#define PREFERRED_DEBUGGING_TYPE DWARF2_DEBUG
++
++/* Keep frame records: the system unwinder and debuggers walk x29.  */
++#undef SUBTARGET_OVERRIDE_OPTIONS
++#define SUBTARGET_OVERRIDE_OPTIONS do { } while (0)
++
++#undef TARGET_ASM_FILE_END
++#define TARGET_ASM_FILE_END darwin_file_end
++
++#undef MAX_BITS_PER_WORD
++#define MAX_BITS_PER_WORD 64
++
++/* Indirect pc-relative EH references (personality routines, C++ type
++   info) go through the GOT: ".long _sym@GOT-." is an
++   ARM64_RELOC_POINTER_TO_GOT.  The generic Darwin $non_lazy_ptr scheme
++   cannot be expressed on arm64 (the pointer lives in a section that is not
++   atomized by symbols).  */
++#undef ASM_MAYBE_OUTPUT_ENCODED_ADDR_RTX
++#define ASM_MAYBE_OUTPUT_ENCODED_ADDR_RTX(FILE, ENCODING, SIZE, ADDR, DONE) \
++  if ((SIZE) == 4 && ((ENCODING) & DW_EH_PE_indirect)			\
++      && ((ENCODING) & 0x70) == DW_EH_PE_pcrel				\
++      && GET_CODE (ADDR) == SYMBOL_REF)					\
++    {									\
++      fputs ("\t.long\t", FILE);					\
++      assemble_name (FILE, XSTR (ADDR, 0));				\
++      fputs ("@GOT-.", FILE);						\
++      goto DONE;							\
++    }
+diff --git a/gcc/config/aarch64/host-aarch64-darwin.c b/gcc/config/aarch64/host-aarch64-darwin.c
+new file mode 100644
+index 000000000..a396ae466
+--- /dev/null
++++ b/gcc/config/aarch64/host-aarch64-darwin.c
+@@ -0,0 +1,30 @@
++/* arm64 Darwin host-specific hook definitions.
++   Copyright (C) 2026 Free Software Foundation, Inc.
++
++This file is part of GCC.
++
++GCC is free software; you can redistribute it and/or modify it under
++the terms of the GNU General Public License as published by the Free
++Software Foundation; either version 3, or (at your option) any later
++version.
++
++GCC is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or
++FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
++for more details.
++
++You should have received a copy of the GNU General Public License
++along with GCC; see the file COPYING3.  If not see
++<http://www.gnu.org/licenses/>.  */
++
++#include "config.h"
++#include "system.h"
++#include "coretypes.h"
++#include "hosthooks.h"
++#include "hosthooks-def.h"
++#include "config/host-darwin.h"
++
++/* Darwin doesn't do anything special for arm64 hosts; this file exists
++   just to include config/host-darwin.h.  */
++
++const struct host_hooks host_hooks = HOST_HOOKS_INITIALIZER;
+diff --git a/gcc/config/aarch64/iterators.md b/gcc/config/aarch64/iterators.md
+index ce81ac5ce..83b9b8124 100644
+--- a/gcc/config/aarch64/iterators.md
++++ b/gcc/config/aarch64/iterators.md
+@@ -632,171 +632,83 @@
+ ;; -------------------------------------------------------------------
+ ;; Int Iterators.
+ ;; -------------------------------------------------------------------
+-(define_int_iterator MAXMINV [UNSPEC_UMAXV UNSPEC_UMINV
+-			      UNSPEC_SMAXV UNSPEC_SMINV])
+ 
+-(define_int_iterator FMAXMINV [UNSPEC_FMAXV UNSPEC_FMINV])
+ 
+-(define_int_iterator HADDSUB [UNSPEC_SHADD UNSPEC_UHADD
+-			      UNSPEC_SRHADD UNSPEC_URHADD
+-			      UNSPEC_SHSUB UNSPEC_UHSUB
+-			      UNSPEC_SRHSUB UNSPEC_URHSUB])
+ 
+ 
+-(define_int_iterator ADDSUBHN [UNSPEC_ADDHN UNSPEC_RADDHN
+-			       UNSPEC_SUBHN UNSPEC_RSUBHN])
+ 
+-(define_int_iterator ADDSUBHN2 [UNSPEC_ADDHN2 UNSPEC_RADDHN2
+-			        UNSPEC_SUBHN2 UNSPEC_RSUBHN2])
+ 
+-(define_int_iterator FMAXMIN [UNSPEC_FMAX UNSPEC_FMIN])
+ 
+-(define_int_iterator VQDMULH [UNSPEC_SQDMULH UNSPEC_SQRDMULH])
+ 
+-(define_int_iterator USSUQADD [UNSPEC_SUQADD UNSPEC_USQADD])
+ 
+-(define_int_iterator SUQMOVN [UNSPEC_SQXTN UNSPEC_UQXTN])
+ 
+-(define_int_iterator VSHL [UNSPEC_SSHL UNSPEC_USHL
+-		           UNSPEC_SRSHL UNSPEC_URSHL])
+ 
+-(define_int_iterator VSHLL [UNSPEC_SSHLL UNSPEC_USHLL])
+ 
+-(define_int_iterator VQSHL [UNSPEC_SQSHL UNSPEC_UQSHL
+-                            UNSPEC_SQRSHL UNSPEC_UQRSHL])
+ 
+-(define_int_iterator VSRA [UNSPEC_SSRA UNSPEC_USRA
+-			     UNSPEC_SRSRA UNSPEC_URSRA])
+ 
+-(define_int_iterator VSLRI [UNSPEC_SSLI UNSPEC_USLI
+-			      UNSPEC_SSRI UNSPEC_USRI])
+ 
+ 
+-(define_int_iterator VRSHR_N [UNSPEC_SRSHR UNSPEC_URSHR])
+ 
+-(define_int_iterator VQSHL_N [UNSPEC_SQSHLU UNSPEC_SQSHL UNSPEC_UQSHL])
+ 
+-(define_int_iterator VQSHRN_N [UNSPEC_SQSHRUN UNSPEC_SQRSHRUN
+-                               UNSPEC_SQSHRN UNSPEC_UQSHRN
+-                               UNSPEC_SQRSHRN UNSPEC_UQRSHRN])
+ 
+-(define_int_iterator VCMP_S [UNSPEC_CMEQ UNSPEC_CMGE UNSPEC_CMGT
+-			     UNSPEC_CMLE UNSPEC_CMLT])
+ 
+-(define_int_iterator VCMP_U [UNSPEC_CMHS UNSPEC_CMHI UNSPEC_CMTST])
+ 
+-(define_int_iterator PERMUTE [UNSPEC_ZIP1 UNSPEC_ZIP2
+-			      UNSPEC_TRN1 UNSPEC_TRN2
+-			      UNSPEC_UZP1 UNSPEC_UZP2])
+ 
+-(define_int_iterator FRINT [UNSPEC_FRINTZ UNSPEC_FRINTP UNSPEC_FRINTM
+-			     UNSPEC_FRINTI UNSPEC_FRINTX UNSPEC_FRINTA])
+ 
+-(define_int_iterator FCVT [UNSPEC_FRINTZ UNSPEC_FRINTP UNSPEC_FRINTM
+-			    UNSPEC_FRINTA])
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
+ 
+ ;; -------------------------------------------------------------------
+ ;; Int Iterators Attributes.
+ ;; -------------------------------------------------------------------
+-(define_int_attr  maxminv [(UNSPEC_UMAXV "umax")
+-			   (UNSPEC_UMINV "umin")
+-			   (UNSPEC_SMAXV "smax")
+-			   (UNSPEC_SMINV "smin")])
+-
+-(define_int_attr  fmaxminv [(UNSPEC_FMAXV "max")
+-			    (UNSPEC_FMINV "min")])
+-
+-(define_int_attr  fmaxmin [(UNSPEC_FMAX "fmax")
+-			   (UNSPEC_FMIN "fmin")])
+-
+-(define_int_attr sur [(UNSPEC_SHADD "s") (UNSPEC_UHADD "u")
+-		      (UNSPEC_SRHADD "sr") (UNSPEC_URHADD "ur")
+-		      (UNSPEC_SHSUB "s") (UNSPEC_UHSUB "u")
+-		      (UNSPEC_SRHSUB "sr") (UNSPEC_URHSUB "ur")
+-		      (UNSPEC_ADDHN "") (UNSPEC_RADDHN "r")
+-		      (UNSPEC_SUBHN "") (UNSPEC_RSUBHN "r")
+-		      (UNSPEC_ADDHN2 "") (UNSPEC_RADDHN2 "r")
+-		      (UNSPEC_SUBHN2 "") (UNSPEC_RSUBHN2 "r")
+-		      (UNSPEC_SQXTN "s") (UNSPEC_UQXTN "u")
+-		      (UNSPEC_USQADD "us") (UNSPEC_SUQADD "su")
+-		      (UNSPEC_SSLI  "s") (UNSPEC_USLI  "u")
+-		      (UNSPEC_SSRI  "s") (UNSPEC_USRI  "u")
+-		      (UNSPEC_USRA  "u") (UNSPEC_SSRA  "s")
+-		      (UNSPEC_URSRA  "ur") (UNSPEC_SRSRA  "sr")
+-		      (UNSPEC_URSHR  "ur") (UNSPEC_SRSHR  "sr")
+-		      (UNSPEC_SQSHLU "s") (UNSPEC_SQSHL   "s")
+-		      (UNSPEC_UQSHL  "u")
+-		      (UNSPEC_SQSHRUN "s") (UNSPEC_SQRSHRUN "s")
+-                      (UNSPEC_SQSHRN "s")  (UNSPEC_UQSHRN "u")
+-                      (UNSPEC_SQRSHRN "s") (UNSPEC_UQRSHRN "u")
+-		      (UNSPEC_USHL  "u")   (UNSPEC_SSHL  "s")
+-		      (UNSPEC_USHLL  "u")  (UNSPEC_SSHLL "s")
+-		      (UNSPEC_URSHL  "ur") (UNSPEC_SRSHL  "sr")
+-		      (UNSPEC_UQRSHL  "u") (UNSPEC_SQRSHL  "s")
+-])
+ 
+-(define_int_attr r [(UNSPEC_SQDMULH "") (UNSPEC_SQRDMULH "r")
+-		    (UNSPEC_SQSHRUN "") (UNSPEC_SQRSHRUN "r")
+-                    (UNSPEC_SQSHRN "")  (UNSPEC_UQSHRN "")
+-                    (UNSPEC_SQRSHRN "r") (UNSPEC_UQRSHRN "r")
+-                    (UNSPEC_SQSHL   "")  (UNSPEC_UQSHL  "")
+-                    (UNSPEC_SQRSHL   "r")(UNSPEC_UQRSHL  "r")
+-])
+ 
+-(define_int_attr lr [(UNSPEC_SSLI  "l") (UNSPEC_USLI  "l")
+-		     (UNSPEC_SSRI  "r") (UNSPEC_USRI  "r")])
+-
+-(define_int_attr u [(UNSPEC_SQSHLU "u") (UNSPEC_SQSHL "") (UNSPEC_UQSHL "")
+-		    (UNSPEC_SQSHRUN "u") (UNSPEC_SQRSHRUN "u")
+-                    (UNSPEC_SQSHRN "")  (UNSPEC_UQSHRN "")
+-                    (UNSPEC_SQRSHRN "") (UNSPEC_UQRSHRN "")])
+-
+-(define_int_attr addsub [(UNSPEC_SHADD "add")
+-			 (UNSPEC_UHADD "add")
+-			 (UNSPEC_SRHADD "add")
+-			 (UNSPEC_URHADD "add")
+-			 (UNSPEC_SHSUB "sub")
+-			 (UNSPEC_UHSUB "sub")
+-			 (UNSPEC_SRHSUB "sub")
+-			 (UNSPEC_URHSUB "sub")
+-			 (UNSPEC_ADDHN "add")
+-			 (UNSPEC_SUBHN "sub")
+-			 (UNSPEC_RADDHN "add")
+-			 (UNSPEC_RSUBHN "sub")
+-			 (UNSPEC_ADDHN2 "add")
+-			 (UNSPEC_SUBHN2 "sub")
+-			 (UNSPEC_RADDHN2 "add")
+-			 (UNSPEC_RSUBHN2 "sub")])
+-
+-(define_int_attr cmp [(UNSPEC_CMGE "ge") (UNSPEC_CMGT "gt")
+-		      (UNSPEC_CMLE "le") (UNSPEC_CMLT "lt")
+-                      (UNSPEC_CMEQ "eq")
+-		      (UNSPEC_CMHS "hs") (UNSPEC_CMHI "hi")
+-		      (UNSPEC_CMTST "tst")])
+-
+-(define_int_attr offsetlr [(UNSPEC_SSLI	"1") (UNSPEC_USLI "1")
+-			   (UNSPEC_SSRI	"0") (UNSPEC_USRI "0")])
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
++
+ 
+ ;; Standard pattern names for floating-point rounding instructions.
+-(define_int_attr frint_pattern [(UNSPEC_FRINTZ "btrunc")
+-				(UNSPEC_FRINTP "ceil")
+-				(UNSPEC_FRINTM "floor")
+-				(UNSPEC_FRINTI "nearbyint")
+-				(UNSPEC_FRINTX "rint")
+-				(UNSPEC_FRINTA "round")])
++
+ 
+ ;; frint suffix for floating-point rounding instructions.
+-(define_int_attr frint_suffix [(UNSPEC_FRINTZ "z") (UNSPEC_FRINTP "p")
+-			       (UNSPEC_FRINTM "m") (UNSPEC_FRINTI "i")
+-			       (UNSPEC_FRINTX "x") (UNSPEC_FRINTA "a")])
+ 
+-(define_int_attr fcvt_pattern [(UNSPEC_FRINTZ "btrunc") (UNSPEC_FRINTA "round")
+-			       (UNSPEC_FRINTP "ceil") (UNSPEC_FRINTM "floor")])
+ 
+-(define_int_attr perm_insn [(UNSPEC_ZIP1 "zip") (UNSPEC_ZIP2 "zip")
+-			    (UNSPEC_TRN1 "trn") (UNSPEC_TRN2 "trn")
+-			    (UNSPEC_UZP1 "uzp") (UNSPEC_UZP2 "uzp")])
+ 
+-(define_int_attr perm_hilo [(UNSPEC_ZIP1 "1") (UNSPEC_ZIP2 "2")
+-			    (UNSPEC_TRN1 "1") (UNSPEC_TRN2 "2")
+-			    (UNSPEC_UZP1 "1") (UNSPEC_UZP2 "2")])
++
++
++
++
+diff --git a/gcc/config/aarch64/t-darwin b/gcc/config/aarch64/t-darwin
+new file mode 100644
+index 000000000..9b1af9e9b
+--- /dev/null
++++ b/gcc/config/aarch64/t-darwin
+@@ -0,0 +1 @@
++# Darwin arm64: nothing beyond the common Darwin and aarch64 fragments.
+diff --git a/gcc/config/aarch64/x-darwin b/gcc/config/aarch64/x-darwin
+new file mode 100644
+index 000000000..0c0f0481c
+--- /dev/null
++++ b/gcc/config/aarch64/x-darwin
+@@ -0,0 +1,4 @@
++host-aarch64-darwin.o : $(srcdir)/config/aarch64/host-aarch64-darwin.c \
++  $(CONFIG_H) $(SYSTEM_H) coretypes.h hosthooks.h $(HOSTHOOKS_DEF_H) \
++  config/host-darwin.h
++	$(COMPILER) -c $(ALL_COMPILERFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) $<
+diff --git a/gcc/config/darwin-c.c b/gcc/config/darwin-c.c
+index 211d141a6..985bba000 100644
+--- a/gcc/config/darwin-c.c
++++ b/gcc/config/darwin-c.c
+@@ -578,6 +578,34 @@ static const char *
+ version_as_macro (void)
+ {
+   static char result[] = "1000";
++  static char result6[] = "000000";
++
++  /* macOS 11 and later (needed for arm64): "MM.mm[.pp]" is encoded in
++     the six-digit form MMmmpp, as the system headers expect.  */
++  if (ISDIGIT (darwin_macosx_version_min[0])
++      && ISDIGIT (darwin_macosx_version_min[1])
++      && darwin_macosx_version_min[2] == '.'
++      && strncmp (darwin_macosx_version_min, "10.", 3) != 0)
++    {
++      const char *p = darwin_macosx_version_min;
++      int maj = 0, min = 0, pat = 0;
++      maj = (p[0] - '0') * 10 + (p[1] - '0');
++      p += 3;
++      if (!ISDIGIT (*p))
++	goto fail;
++      while (ISDIGIT (*p))
++	min = min * 10 + (*p++ - '0');
++      if (*p == '.')
++	{
++	  p++;
++	  while (ISDIGIT (*p))
++	    pat = pat * 10 + (*p++ - '0');
++	}
++      if (*p != '\0' || min > 99 || pat > 99)
++	goto fail;
++      sprintf (result6, "%02d%02d%02d", maj, min, pat);
++      return result6;
++    }
+ 
+   if (strncmp (darwin_macosx_version_min, "10.", 3) != 0)
+     goto fail;
+diff --git a/gcc/config/darwin-driver.c b/gcc/config/darwin-driver.c
+index 48eaf191c..9db329e12 100644
+--- a/gcc/config/darwin-driver.c
++++ b/gcc/config/darwin-driver.c
+@@ -57,6 +57,14 @@ darwin_find_version_from_kernel (char *new_flag)
+   version_p = osversion + 1;
+   if (ISDIGIT (*version_p))
+     major_vers = major_vers * 10 + (*version_p++ - '0');
++  /* Darwin 20 and later are macOS 11 and later, numbered MM.mm: Darwin
++     20-24 are macOS 11-15 and Darwin 25 is macOS 26.  */
++  if (major_vers >= 20)
++    {
++      sprintf (new_flag, "%d.0", major_vers >= 25 ? major_vers + 1
++						  : major_vers - 9);
++      return true;
++    }
+   if (major_vers > 4 + 9)
+     goto parse_failed;
+   if (*version_p++ != '.')
+diff --git a/gcc/config/host-darwin.c b/gcc/config/host-darwin.c
+index 4d5a5512e..c2ac2b062 100644
+--- a/gcc/config/host-darwin.c
++++ b/gcc/config/host-darwin.c
+@@ -23,15 +23,27 @@
+ #include "diagnostic-core.h"
+ #include "config/host-darwin.h"
+ 
+-/* Yes, this is really supposed to work.  */
+-static char pch_address_space[1024*1024*1024] __attribute__((aligned (4096)));
++/* Yes, this is really supposed to work.
++
++   The space must be page aligned.  Do not rely on __attribute__((aligned)):
++   ansidecl.h defines __attribute__ away when the compiler building GCC is
++   not GCC (as in the first stage of a bootstrap from another compiler).
++   Over-allocate and align by hand instead; 64K covers the 16K pages of
++   arm64 Darwin.  */
++#define PCH_ADDRESS_SPACE_SIZE (1024*1024*1024)
++#define PCH_ADDRESS_SPACE_ALIGN 65536
++static char pch_address_space_raw[PCH_ADDRESS_SPACE_SIZE
++				  + PCH_ADDRESS_SPACE_ALIGN];
++#define pch_address_space \
++  ((char *) (((size_t) pch_address_space_raw + PCH_ADDRESS_SPACE_ALIGN - 1) \
++	     & ~(size_t) (PCH_ADDRESS_SPACE_ALIGN - 1)))
+ 
+ /* Return the address of the PCH address space, if the PCH will fit in it.  */
+ 
+ void *
+ darwin_gt_pch_get_address (size_t sz, int fd ATTRIBUTE_UNUSED)
+ {
+-  if (sz <= sizeof (pch_address_space))
++  if (sz <= PCH_ADDRESS_SPACE_SIZE)
+     return pch_address_space;
+   else
+     return NULL;
+@@ -48,16 +60,16 @@ darwin_gt_pch_use_address (void *addr, size_t sz, int fd, size_t off)
+   int ret;
+ 
+   gcc_assert ((size_t)pch_address_space % pagesize == 0
+-	      && sizeof (pch_address_space) % pagesize == 0);
++	      && PCH_ADDRESS_SPACE_SIZE % pagesize == 0);
+   
+-  ret = (addr == pch_address_space && sz <= sizeof (pch_address_space));
++  ret = (addr == pch_address_space && sz <= PCH_ADDRESS_SPACE_SIZE);
+   if (! ret)
+     sz = 0;
+ 
+   /* Round the size to a whole page size.  Normally this is a no-op.  */
+   sz = (sz + pagesize - 1) / pagesize * pagesize;
+ 
+-  if (munmap (pch_address_space + sz, sizeof (pch_address_space) - sz) != 0)
++  if (munmap (pch_address_space + sz, PCH_ADDRESS_SPACE_SIZE - sz) != 0)
+     fatal_error ("couldn%'t unmap pch_address_space: %m");
+ 
+   if (ret)
+diff --git a/gcc/expr.c b/gcc/expr.c
+index 4c248e061..a68539155 100644
+--- a/gcc/expr.c
++++ b/gcc/expr.c
+@@ -123,7 +123,9 @@ struct store_by_pieces_d
+   int reverse;
+ };
+ 
+-static void move_by_pieces_1 (rtx (*) (rtx, ...), enum machine_mode,
++/* The generator functions are passed through an unprototyped function type
++   rather than (rtx, ...): see the comment on insn_gen_fn in recog.h.  */
++static void move_by_pieces_1 (rtx (*) (), enum machine_mode,
+ 			      struct move_by_pieces_d *);
+ static bool block_move_libcall_safe_for_call_parm (void);
+ static bool emit_block_move_via_movmem (rtx, rtx, rtx, unsigned, unsigned, HOST_WIDE_INT);
+@@ -132,7 +134,7 @@ static void emit_block_move_via_loop (rtx, rtx, rtx, unsigned);
+ static rtx clear_by_pieces_1 (void *, HOST_WIDE_INT, enum machine_mode);
+ static void clear_by_pieces (rtx, unsigned HOST_WIDE_INT, unsigned int);
+ static void store_by_pieces_1 (struct store_by_pieces_d *, unsigned int);
+-static void store_by_pieces_2 (rtx (*) (rtx, ...), enum machine_mode,
++static void store_by_pieces_2 (rtx (*) (), enum machine_mode,
+ 			       struct store_by_pieces_d *);
+ static tree clear_storage_libcall_fn (int);
+ static rtx compress_float_constant (rtx, rtx);
+@@ -1047,7 +1049,7 @@ move_by_pieces_ninsns (unsigned HOST_WIDE_INT l, unsigned int align,
+    to make a move insn for that mode.  DATA has all the other info.  */
+ 
+ static void
+-move_by_pieces_1 (rtx (*genfun) (rtx, ...), enum machine_mode mode,
++move_by_pieces_1 (rtx (*genfun) (), enum machine_mode mode,
+ 		  struct move_by_pieces_d *data)
+ {
+   unsigned int size = GET_MODE_SIZE (mode);
+@@ -2608,7 +2610,7 @@ store_by_pieces_1 (struct store_by_pieces_d *data ATTRIBUTE_UNUSED,
+    to make a move insn for that mode.  DATA has all the other info.  */
+ 
+ static void
+-store_by_pieces_2 (rtx (*genfun) (rtx, ...), enum machine_mode mode,
++store_by_pieces_2 (rtx (*genfun) (), enum machine_mode mode,
+ 		   struct store_by_pieces_d *data)
+ {
+   unsigned int size = GET_MODE_SIZE (mode);
+diff --git a/gcc/gcc.c b/gcc/gcc.c
+index 939dcc873..8637840f5 100644
+--- a/gcc/gcc.c
++++ b/gcc/gcc.c
+@@ -6178,17 +6178,21 @@ main (int argc, char **argv)
+ 				   CL_DRIVER,
+ 				   &decoded_options, &decoded_options_count);
+ 
+-#ifdef GCC_DRIVER_HOST_INITIALIZATION
+-  /* Perform host dependent initialization when needed.  */
+-  GCC_DRIVER_HOST_INITIALIZATION;
+-#endif
+-
+   /* Unlock the stdio streams.  */
+   unlock_std_streams ();
+ 
+   gcc_init_libintl ();
+ 
++  /* The diagnostic machinery must be set up before the host
++     initialization below: darwin_driver_init can issue warnings, and
++     doing so with an uninitialized global_dc crashes the driver.  */
+   diagnostic_initialize (global_dc, 0);
++
++#ifdef GCC_DRIVER_HOST_INITIALIZATION
++  /* Perform host dependent initialization when needed.  */
++  GCC_DRIVER_HOST_INITIALIZATION;
++#endif
++
+   if (atexit (delete_temp_files) != 0)
+     fatal_error ("atexit failed");
+ 
+diff --git a/gcc/recog.h b/gcc/recog.h
+index 71dfe2a68..ee13988ef 100644
+--- a/gcc/recog.h
++++ b/gcc/recog.h
+@@ -257,7 +257,16 @@ extern struct operand_alternative recog_op_alt[MAX_RECOG_OPERANDS][MAX_RECOG_ALT
+ 
+ typedef int (*insn_operand_predicate_fn) (rtx, enum machine_mode);
+ typedef const char * (*insn_output_fn) (rtx *, rtx);
++/* The generator functions take a fixed number of rtx operands.  They must
++   not be called through a variadic function type: on Darwin arm64 the
++   anonymous arguments of a variadic call are passed on the stack, while the
++   generators read them from registers.  An unprototyped function type uses
++   the normal (register) convention for any number of operands.  */
++#ifdef __cplusplus
+ typedef rtx (*insn_gen_fn) (rtx, ...);
++#else
++typedef rtx (*insn_gen_fn) ();
++#endif
+ 
+ struct insn_operand_data
+ {
+diff --git a/libgcc/config.host b/libgcc/config.host
+index b64da4a26..79f3c0058 100644
+--- a/libgcc/config.host
++++ b/libgcc/config.host
+@@ -515,6 +515,10 @@ i[34567]86-*-darwin*)
+ 	tm_file="$tm_file i386/darwin-lib.h"
+ 	extra_parts="$extra_parts crtprec32.o crtprec64.o crtprec80.o crtfastmath.o"
+ 	;;
++aarch64*-*-darwin*)
++	# Darwin arm64: the system provides no TFmode; long double is double.
++	tmake_file="$tmake_file aarch64/t-aarch64"
++	;;
+ x86_64-*-darwin*)
+ 	tmake_file="$tmake_file i386/t-crtpc i386/t-crtfm"
+ 	tm_file="$tm_file i386/darwin-lib.h"
+diff --git a/libgcc/config/aarch64/t-darwin b/libgcc/config/aarch64/t-darwin
+new file mode 100644
+index 000000000..9adb1f894
+--- /dev/null
++++ b/libgcc/config/aarch64/t-darwin
+@@ -0,0 +1 @@
++# Darwin arm64 libgcc: static libgcc only.

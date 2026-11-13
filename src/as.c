@@ -1079,10 +1079,11 @@ static int parse_operand(Operand *op) {
               return 0;
             }
             skip_ws();
-            if (*lp == '#') {
+            if (*lp == '#' || isdigit((unsigned char)*lp)) {
               int64_t v;
               Expr *e;
-              lp++;
+              if (*lp == '#')
+                lp++;
               e = parse_expr();
               if (!eval_abs_now(e, &v))
                 error("expected constant shift amount");
@@ -2422,6 +2423,14 @@ static void assemble_insn(const char *mn) {
                     FX_BRANCH26);
     return;
   }
+  if ((mn[0] == 'b' || mn[0] == 'B') && strlen(mn) == 3 &&
+      parse_cond_name(mn + 1, 2) >= 0) {
+    /* legacy "beq" spelling of "b.eq" */
+    if (!expect_ops(1)) return;
+    emit_insn_fixup(0x54000000u | parse_cond_name(mn + 1, 2), label_expr(a),
+                    FX_COND19);
+    return;
+  }
   if ((mn[0] == 'b' || mn[0] == 'B') && mn[1] == '.') {
     int cnd = parse_cond_name(mn + 2, strlen(mn + 2));
     if (cnd < 0) { error("unrecognized instruction mnemonic"); return; }
@@ -2592,13 +2601,48 @@ static void assemble_insn(const char *mn) {
     int s = mn[3] == 'b' || mn[3] == 'B' ? 7 : mn[3] == 'h' || mn[3] == 'H' ? 15 : 31;
     int sg = mn[0] == 's' || mn[0] == 'S';
     if (!expect_ops(2) || !is_gp(a) || !is_w(b)) return (void)bad();
-    if (!sg && a->cls != RC_W) return (void)bad();
     if (s == 31 && a->cls != RC_X) return (void)bad();
     {
-      int sf = sf_of(a);
+      /* uxtb/uxth with an X destination are accepted and encoded in the
+         32-bit form (which zero-extends), like Apple's assembler does */
+      int sf = sg ? sf_of(a) : 0;
       emit_insn((sf ? 0x80000000u : 0) | ((uint32_t)(sg ? 0 : 2) << 29) |
                 0x13000000u | ((uint32_t)sf << 22) | ((uint32_t)s << 10) |
                 (rz(b) << 5) | rz(a));
+    }
+    return;
+  }
+  if (IS("uxtw")) {
+    /* uxtw xd, wn: an alias of ubfm xd, xn, #0, #31 */
+    if (!expect_ops(2) || !is_x(a) || !is_w(b)) return (void)bad();
+    emit_insn(0xd3407c00u | (rz(b) << 5) | rz(a));
+    return;
+  }
+  if (IS("dc") || IS("ic")) {
+    static const struct {
+      const char *n;
+      uint32_t enc;
+      int has_reg;
+    } ops_[] = {{"ivau", 0xd50b7520u, 1}, {"iallu", 0xd508751fu, 0},
+                {"ialluis", 0xd508711fu, 0}, {"cvau", 0xd50b7b20u, 1},
+                {"civac", 0xd50b7e20u, 1}, {"cvac", 0xd50b7a20u, 1},
+                {"zva", 0xd50b7420u, 1}, {"ivac", 0xd5087620u, 1},
+                {"cvap", 0xd50b7c20u, 1}, {NULL, 0, 0}};
+    int k;
+    if (nops < 1 || !a->ident[0]) return (void)bad();
+    for (k = 0; ops_[k].n; k++)
+      if (lower_eq(a->ident, ops_[k].n) && (IS("ic") == (ops_[k].n[0] == 'i')))
+        break;
+    if (!ops_[k].n) {
+      error("invalid operand for %s", mn);
+      return;
+    }
+    if (ops_[k].has_reg) {
+      if (nops != 2 || !is_x(b)) return (void)bad();
+      emit_insn(ops_[k].enc | rz(b));
+    } else {
+      if (nops != 1) return (void)bad();
+      emit_insn(ops_[k].enc);
     }
     return;
   }
@@ -3648,7 +3692,13 @@ static void do_directive(const char *d) {
     have_build_version = 1;
   }
   else if (D(".file") || D(".ident")) {
-    /* .file "name" is accepted and ignored. */
+    /* .file "name" and .ident "string" are accepted and ignored. */
+    if (D(".file") && isdigit((unsigned char)*lp)) {
+      error("unsupported directive '.file' with a file number");
+      return;
+    }
+    while (*lp)
+      lp++;
   }
   else if (D(".loc") || strncmp(d, ".cfi_", 5) == 0) {
     error("unsupported directive '%s'", d);

@@ -1211,6 +1211,7 @@ static void union_initializer(Token **rest, Token *tok, Initializer *init) {
     Member *mem = struct_designator(&tok, tok->next, init->ty);
     init->mem = mem;
     designation(&tok, tok, init->children[mem->idx]);
+    consume(&tok, tok, ",");
     *rest = skip(tok, "}");
     return;
   }
@@ -1808,10 +1809,21 @@ static int64_t eval(Node *node) { return eval2(node, NULL); }
 static int64_t trunc_int(int64_t v, Type *ty) {
   if (ty->kind == TY_BOOL)
     return v != 0;
+  /* Note: not written with ?: -- the conditional would convert the signed
+     alternative to the unsigned type. */
   switch (ty->size) {
-  case 1: return ty->is_unsigned ? (uint8_t)v : (int8_t)v;
-  case 2: return ty->is_unsigned ? (uint16_t)v : (int16_t)v;
-  case 4: return ty->is_unsigned ? (uint32_t)v : (int32_t)v;
+  case 1:
+    if (ty->is_unsigned)
+      return (uint8_t)v;
+    return (int8_t)v;
+  case 2:
+    if (ty->is_unsigned)
+      return (uint16_t)v;
+    return (int16_t)v;
+  case 4:
+    if (ty->is_unsigned)
+      return (uint32_t)v;
+    return (int32_t)v;
   }
   return v;
 }
@@ -1921,6 +1933,11 @@ static int64_t eval2(Node *node, char ***label) {
     return 0;
   case ND_NUM:
     return node->val;
+  case ND_DEREF:
+    /* *p of array type designates the array: its address is p */
+    if (node->ty->kind == TY_ARRAY && label)
+      return eval2(node->lhs, label);
+    break;
   default:
     break;
   }
@@ -3030,6 +3047,7 @@ static Node *primary(Token **rest, Token *tok) {
     if (equal(tok->next, "(")) {
       /* implicit declaration: int f() */
       Type *fty = func_type(ty_int);
+      warn_tok(tok, "implicit declaration of function '%.*s'", tok->len, tok->loc);
       Obj *fn;
       Scope *s;
       fty->is_oldstyle = true;
@@ -3277,13 +3295,14 @@ static Token *global_variable(Token *tok, Type *basety, VarAttr *attr) {
         var->ty = ty;
       if (attr->is_static)
         var->is_static = true;
-      if (!attr->is_extern) {
-        if (equal(tok, "=")) {
-          var->is_definition = true;
-          var->is_tentative = false;
-          var->ty = ty;
-          gvar_initializer(&tok, tok->next, var);
-        } else if (!var->init_data && !var->is_definition) {
+      if (equal(tok, "=")) {
+        /* an initializer makes this a definition, even with extern */
+        var->is_definition = true;
+        var->is_tentative = false;
+        var->ty = ty;
+        gvar_initializer(&tok, tok->next, var);
+      } else if (!attr->is_extern) {
+        if (!var->init_data && !var->is_definition) {
           var->is_definition = true;
           var->is_tentative = true;
           var->ty = ty;

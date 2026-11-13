@@ -82,6 +82,7 @@ void map_del2(Map *m, const char *key, int keylen);
 int as_main(int argc, char **argv);
 int ld_main(int argc, char **argv);
 int ar_main(int argc, char **argv);
+int nm_main(int argc, char **argv);
 int cc_main(int argc, char **argv);
 
 #endif
