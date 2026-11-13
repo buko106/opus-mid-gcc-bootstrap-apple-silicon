@@ -2405,6 +2405,41 @@ static void do_vshift_imm(uint32_t base, int right) {
   emit_insn(base | (imm << 16) | (n->num << 5) | d->num);
 }
 
+static void do_v3same(uint32_t base, int sized);
+
+/* [us]addlp / [us]adalp vd.T2, vn.T1: pairwise add long, T2 = T1 widened */
+static void do_addlp(uint32_t base) {
+  Operand *d = &ops[0], *n = &ops[1];
+  static const int wide[][2] = {{AR_8B, AR_4H}, {AR_16B, AR_8H}, {AR_4H, AR_2S},
+                                {AR_8H, AR_4S}, {AR_2S, AR_1D}, {AR_4S, AR_2D}};
+  int i;
+  if (!expect_ops(2) || d->kind != OP_VREG || n->kind != OP_VREG)
+    return (void)bad();
+  for (i = 0; i < 6; i++)
+    if (wide[i][0] == n->arr && wide[i][1] == d->arr)
+      break;
+  if (i == 6)
+    return (void)bad();
+  emit_insn(base | q_of(n->arr) | (size_of_arr(n->arr) << 22) | (n->num << 5) |
+            d->num);
+}
+
+/* [us]shl: vector (same arrangements) or scalar d registers */
+static void do_shl_reg(uint32_t base) {
+  Operand *d = &ops[0], *n = &ops[1], *m = &ops[2];
+  if (!expect_ops(3))
+    return;
+  if (d->kind == OP_REG && d->cls == RC_D && n->kind == OP_REG && n->cls == RC_D &&
+      m->kind == OP_REG && m->cls == RC_D) {
+    emit_insn(base | 0x50c00000u | (m->num << 16) | (n->num << 5) | d->num);
+    return;
+  }
+  if (d->kind != OP_VREG || n->arr != d->arr || m->arr != d->arr ||
+      d->arr == AR_1D)
+    return (void)bad();
+  do_v3same(base, 1);
+}
+
 /* three-same vector ops: base with size bits 0 */
 /* sized: 1 = size field from the arrangement, 2 = bitwise op (8b/16b only) */
 static void do_v3same(uint32_t base, int sized) {
@@ -3159,6 +3194,12 @@ static void assemble_insn(const char *mn) {
         return;
       }
   }
+  if (IS("uaddlp")) { do_addlp(0x2e202800u); return; }
+  if (IS("saddlp")) { do_addlp(0x0e202800u); return; }
+  if (IS("uadalp")) { do_addlp(0x2e206800u); return; }
+  if (IS("sadalp")) { do_addlp(0x0e206800u); return; }
+  if (IS("ushl")) { do_shl_reg(0x2e204400u); return; }
+  if (IS("sshl")) { do_shl_reg(0x0e204400u); return; }
   if (IS("movi")) { do_movi(0); return; }
   if (IS("mvni")) { do_movi(1); return; }
   if (IS("dup")) { do_dup(); return; }
