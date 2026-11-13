@@ -2057,6 +2057,35 @@ static void do_excl(uint32_t base, int has_status, int width_from) {
   emit_insn(base | (m->base << 5) | rz(t));
 }
 
+static void do_exclp(uint32_t base, int has_status) {
+  /* ldxp t1, t2, [xn] ; stxp ws, t1, t2, [xn] */
+  Operand *s = NULL, *t1, *t2, *m;
+  int i = 0;
+  if (nops != (has_status ? 4 : 3))
+    return (void)bad();
+  if (has_status)
+    s = &ops[i++];
+  t1 = &ops[i++];
+  t2 = &ops[i++];
+  m = &ops[i];
+  if (!is_gp(t1) || !is_gp(t2) || t1->cls != t2->cls || m->kind != OP_MEM ||
+      m->mem_kind == MEM_REG)
+    return (void)bad();
+  if (m->mem_kind == MEM_IMM) {
+    int64_t v;
+    if (!eval_abs_now(m->e, &v) || v != 0)
+      return (void)bad();
+  }
+  if (t1->cls == RC_X)
+    base |= 0x40000000u;
+  if (s) {
+    if (!is_w(s))
+      return (void)bad();
+    base |= (uint32_t)s->num << 16;
+  }
+  emit_insn(base | (rz(t2) << 10) | (m->base << 5) | rz(t1));
+}
+
 /* ------------------------------------------------------------- FP / SIMD */
 
 static uint32_t ftype_of(Operand *o) {
@@ -2917,6 +2946,10 @@ static void assemble_insn(const char *mn) {
               {"ldarb", 0x08dffc00u, 0, 0}, {"ldarh", 0x48dffc00u, 0, 0},
               {"stlrb", 0x089ffc00u, 0, 0}, {"stlrh", 0x489ffc00u, 0, 0},
               {NULL, 0, 0, 0}};
+    if (IS("ldxp")) { do_exclp(0x887f0000u, 0); return; }
+    if (IS("ldaxp")) { do_exclp(0x887f8000u, 0); return; }
+    if (IS("stxp")) { do_exclp(0x88200000u, 1); return; }
+    if (IS("stlxp")) { do_exclp(0x88208000u, 1); return; }
     for (i = 0; ex[i].n; i++)
       if (IS(ex[i].n)) {
         do_excl(ex[i].base, ex[i].status, ex[i].width);
