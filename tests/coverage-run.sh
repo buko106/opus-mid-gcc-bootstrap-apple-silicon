@@ -21,7 +21,7 @@ for t in tests/c/*.c; do
 done
 # self-compilation: the instrumented compiler must produce the same ascc
 "$C" -DASCC_INCLUDE_DIR="\"$ROOT/include\"" \
-  -DASCC_SYSROOT="\"/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk\"" \
+  -DASCC_SYSROOT="\"$(sh "$ROOT/gccbuild/host-sdk.sh")\"" \
   -o "$W/ascc" src/main.c src/util.c src/as.c src/ld.c src/ar.c \
   src/tokenize.c src/preprocess.c src/type.c src/parse.c src/codegen.c \
   src/driver.c

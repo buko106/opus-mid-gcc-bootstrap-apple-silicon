@@ -6,7 +6,7 @@
 # an exit status, program output or tool output.
 DIR=$(cd "${1:?usage: tools.sh DIR}" && pwd) || exit 1
 CC=$DIR/ascc AS=$DIR/as LD=$DIR/ld AR=$DIR/ar RANLIB=$DIR/ranlib NM=$DIR/nm
-SDK=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk
+SDK=$(sh "$(dirname "$0")/../gccbuild/host-sdk.sh")
 T=$(mktemp -d "${TMPDIR:-/tmp}/ascc-tools.XXXXXX") || exit 1
 trap 'chmod -R u+w "$T"; find "$T" -delete' EXIT
 cd "$T" || exit 1

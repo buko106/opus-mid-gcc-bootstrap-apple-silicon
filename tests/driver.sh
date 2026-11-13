@@ -98,7 +98,7 @@ check c-Scpp-o "$CC" -c -o h2.o h.S
 check c-asm-o "$CC" -c -o g2.o g.s
 check link-mixed "$CC" -arch arm64 -mmacosx-version-min=12.0 -o use use.c f.c g.s h.S
 check run-mixed sh -c "test \"\$(./use)\" = 25"
-check link-objs "$CC" -mmacos-version-min=11.0 -isysroot "${ASCC_SYSROOT:-/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk}" \
+check link-objs "$CC" -mmacos-version-min=11.0 -isysroot "$(sh "$ROOT/gccbuild/host-sdk.sh")" \
   -o use2 use.c f.o g.o h.o -L. -Lnone -L . -Wl,-dead_strip -Xlinker -dead_strip \
   -framework CoreFoundation -fno-common -fcommon -pthread -static-libgcc -lSystem
 check run-objs sh -c "test \"\$(./use2)\" = 25"

@@ -22,7 +22,7 @@ test "$out" = "hello from GCC 10.5"
 set --
 for s in $SRCS; do set -- "$@" "$ROOT/src/$s.c"; done
 "$P/bin/gcc" -O2 -DASCC_INCLUDE_DIR="\"$ROOT/include\"" \
-  -DASCC_SYSROOT="\"/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk\"" \
+  -DASCC_SYSROOT="\"$(sh "$ROOT/gccbuild/host-sdk.sh")\"" \
   -o "$T/ascc-gcc10" "$@"
 for s in $SRCS; do
   "$T/ascc-gcc10" -S -o "$T/asm-g10/$s.s" "$ROOT/src/$s.c"

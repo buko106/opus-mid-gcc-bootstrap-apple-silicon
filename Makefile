@@ -12,7 +12,7 @@
 
 ROOT     := $(abspath .)
 BUILD    := $(ROOT)/build
-SDKROOT  ?= /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk
+SDKROOT  ?= $(shell sh $(ROOT)/gccbuild/host-sdk.sh)
 SRCS     := src/main.c src/util.c src/as.c src/ld.c src/ar.c src/tokenize.c \
             src/preprocess.c src/type.c src/parse.c src/codegen.c src/driver.c
 HDRS     := src/util.h src/macho.h src/cc.h

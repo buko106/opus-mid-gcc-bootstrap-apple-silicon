@@ -1,5 +1,8 @@
 #ifndef _ASCC_STDIO_H
 #define _ASCC_STDIO_H
+/* the guard macro of the Darwin header: software such as gmp.h tests it to
+   decide whether FILE is available */
+#define _STDIO_H_
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -20,7 +20,9 @@ STUB
 done
 PATH=$TOOLS:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin
 export PATH
-SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk
+# GCC 10's Darwin driver turns $SDKROOT into --sysroot; keep it unset so the
+# headers come from ascc's include/ (--with-native-system-header-dir).
+unset SDKROOT
 export MACOSX_DEPLOYMENT_TARGET=11.0
 unset CPATH LIBRARY_PATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH SDKROOT_ENV
 JOBS=${JOBS:-$(sysctl -n hw.ncpu)}

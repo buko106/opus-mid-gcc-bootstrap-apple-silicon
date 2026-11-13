@@ -57,6 +57,11 @@ int main(void) {
   ASSERT(5, PASTE_EMPTY_BOTH(, x1));
   ASSERT(10, PASTE_EMPTY_R(, 1));
   ASSERT(0, strcmp(__BASE_FILE__, __FILE__));
+#ifdef _STDIO_H_
+  ASSERT(1, 1);
+#else
+  ASSERT(1, 0); /* <stdio.h> must define the Darwin guard _STDIO_H_ */
+#endif
   ASSERT(3, (int)sizeof(u8"a" "b"));
   ASSERT(3, (int)sizeof("a" u8"b"));
   ASSERT(6, (int)sizeof(u"a" "b"));
