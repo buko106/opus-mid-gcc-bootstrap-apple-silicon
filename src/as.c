@@ -2376,12 +2376,16 @@ static void do_movi(void) {
 }
 
 /* three-same vector ops: base with size bits 0 */
+/* sized: 1 = size field from the arrangement, 2 = bitwise op (8b/16b only) */
 static void do_v3same(uint32_t base, int sized) {
   Operand *d = &ops[0], *n = &ops[1], *m = &ops[2];
   if (!expect_ops(3) || d->kind != OP_VREG || n->kind != OP_VREG ||
       m->kind != OP_VREG)
     return (void)bad();
-  emit_insn(base | q_of(d->arr) | (sized ? size_of_arr(d->arr) << 22 : 0) |
+  if (sized == 2 && ((d->arr != AR_8B && d->arr != AR_16B) || n->arr != d->arr ||
+                     m->arr != d->arr))
+    return (void)bad();
+  emit_insn(base | q_of(d->arr) | (sized == 1 ? size_of_arr(d->arr) << 22 : 0) |
             (m->num << 16) | (n->num << 5) | d->num);
 }
 
@@ -2602,12 +2606,18 @@ static void assemble_insn(const char *mn) {
           static const uint32_t vb[] = {0x0e201c00u, 0x0ea01c00u, 0x2e201c00u,
                                         0, 0x0e601c00u, 0x0ee01c00u, 0, 0};
           if (!vb[lg[i].opc + lg[i].neg * 4]) return (void)bad();
-          do_v3same(vb[lg[i].opc + lg[i].neg * 4], 0);
+          do_v3same(vb[lg[i].opc + lg[i].neg * 4], 2);
           return;
         }
         enc_logical(lg[i].opc, lg[i].neg, a, b, c, opt(3));
         return;
       }
+  }
+  if (IS("bsl") || IS("bit") || IS("bif")) {
+    /* SIMD bitwise select / insert: 8b or 16b arrangements only */
+    if (nops != 3 || a->kind != OP_VREG) return (void)bad();
+    do_v3same(IS("bsl") ? 0x2e601c00u : IS("bit") ? 0x2ea01c00u : 0x2ee01c00u, 2);
+    return;
   }
   if (IS("tst")) {
     Operand z;
