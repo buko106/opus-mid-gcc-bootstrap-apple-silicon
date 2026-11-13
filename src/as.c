@@ -2313,10 +2313,14 @@ static void do_dup(void) {
   bad();
 }
 
-static void do_movi(void) {
+/* movi, or mvni (inv): mvni has only the 16- and 32-bit element forms */
+static void do_movi(int inv) {
   Operand *d = &ops[0], *s = &ops[1];
   int64_t v;
   if (nops < 2)
+    return (void)bad();
+  if (inv && (d->kind != OP_VREG || d->arr == AR_2D || d->arr == AR_8B ||
+              d->arr == AR_16B))
     return (void)bad();
   if (d->kind == OP_REG && d->cls == RC_D) {
     /* movi dN, #0xff00ff... (each byte 0 or ff) */
@@ -2370,7 +2374,7 @@ static void do_movi(void) {
     default: cmode = (uint32_t)((shift / 8) << 1); break;
     }
   out:
-    emit_insn(0x0f000400u | q_of(d->arr) | ((imm >> 5) << 16) | (cmode << 12) |
+    emit_insn((inv ? 0x2f000400u : 0x0f000400u) | q_of(d->arr) | ((imm >> 5) << 16) | (cmode << 12) |
               ((imm & 31) << 5) | d->num);
   }
 }
@@ -3113,7 +3117,8 @@ static void assemble_insn(const char *mn) {
       }
   }
   /* SIMD subset */
-  if (IS("movi")) { do_movi(); return; }
+  if (IS("movi")) { do_movi(0); return; }
+  if (IS("mvni")) { do_movi(1); return; }
   if (IS("dup")) { do_dup(); return; }
   if (IS("umov")) { do_umov(0); return; }
   if (IS("smov")) { do_umov(1); return; }
